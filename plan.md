@@ -185,6 +185,8 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 0：建立 Fork 與基準線
 
+目前狀態（2026-08-09）：基準 build 與 tests 已通過，npm 與 Rust production audits 均為 0 vulnerabilities。`quick-xml`、`rkyv`、`rustls-webpki` 與 `tar` 的 production advisories 已完成相容修復；Phase 0 的技術驗證已完成，目前 working tree 等待提交與歸檔。
+
 - 從 `xingkongliang/skills-manager` 建立本機 repo。
 - 設定自己的 `origin` 與原作者的 `upstream`。
 - 保存 MIT License 與必要 attribution。
