@@ -1,6 +1,9 @@
 schema: spec-driven
 
 context: |
+  所有 Spectra artifacts 與專案說明一律使用繁體中文（台灣），採用台灣慣用詞；
+  程式碼識別字、命令、API 名稱與技術術語保留原文。
+
   AgentDeck is a macOS-first desktop GUI for centrally managing Codex and
   Claude Code Skills, Plugins, Hooks, and Config Profiles.
 

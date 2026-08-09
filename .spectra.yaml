@@ -9,7 +9,7 @@
 locale: tw
 
 # Workflow toggles
-# tdd: true
+tdd: true
 # audit: true
 # parallel_tasks: true
 
