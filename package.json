@@ -7,6 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:board": "node scripts/check-board-lanes.ts",
+    "check:board-layout": "node scripts/check-board-layout.mjs",
+    "check:i18n": "node scripts/check-i18n-locales.mjs",
+    "check:skill-pack-ui": "node scripts/check-skill-pack-ui.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "release:prepare": "node scripts/prepare-release.mjs",

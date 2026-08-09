@@ -165,11 +165,12 @@ export function Sidebar() {
   };
 
   const NAV_ITEMS = [
-    { name: t("sidebar.dashboard"), path: "/", icon: LayoutDashboard },
     { name: t("sidebar.mySkills"), path: "/my-skills", icon: Layers },
+    { name: t("sidebar.dashboard"), path: "/dashboard", icon: LayoutDashboard },
     { name: t("sidebar.installSkills"), path: "/install", icon: Download },
     { name: t("sidebar.backup"), path: "/backup", icon: CloudUpload },
   ];
+  const isPresetContextActive = location.pathname === "/my-skills";
 
   const handleSwitchPreset = (id: string) => {
     setViewedPresetId(id);
@@ -445,7 +446,7 @@ export function Sidebar() {
                       {...droppableProvided.droppableProps}
                     >
                       {orderedPresets.map((preset, index) => {
-                        const isActive = viewedPreset?.id === preset.id;
+                        const isActive = isPresetContextActive && viewedPreset?.id === preset.id;
                         const presetIcon = getPresetIconOption(preset);
                         const PresetIcon = presetIcon.icon;
                         return (

@@ -7,6 +7,7 @@ import { computePresetStatus } from "../lib/presetStatus";
 import { getPresetIconOption } from "../lib/presetIcons";
 import type { ManagedSkill, Preset } from "../lib/tauri";
 import { getErrorMessage } from "../lib/error";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export interface PresetBarProps {
   presets: Preset[];
@@ -29,6 +30,7 @@ export function PresetBar({
 }: PresetBarProps) {
   const { t } = useTranslation();
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<{ preset: Preset; count: number } | null>(null);
 
   const statuses = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computePresetStatus>>();
@@ -100,48 +102,78 @@ export function PresetBar({
   const busy = loadingKey !== null;
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <span className="shrink-0 text-[12px] text-muted">{t("sidebar.presets")}</span>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-hide">
-        {visiblePresets.map((preset) => {
-          const s = statuses.get(preset.id)!;
-          const presetIcon = getPresetIconOption(preset);
-          const Icon = presetIcon.icon;
-          const isLoading = loadingKey?.startsWith(preset.id) ?? false;
+    <>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="shrink-0 text-[12px] text-muted">{t("sidebar.presets")}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-hide">
+          {visiblePresets.map((preset) => {
+            const s = statuses.get(preset.id)!;
+            const presetIcon = getPresetIconOption(preset);
+            const Icon = presetIcon.icon;
+            const isAdding = loadingKey === `${preset.id}-add`;
+            const isRemoving = loadingKey === `${preset.id}-remove`;
 
-          return (
-            <button
-              key={preset.id}
-              onClick={() => {
-                if (busy) return;
-                if (s.status === "active") handleDeactivate(preset);
-                else handleActivate(preset);
-              }}
-              disabled={busy}
-              title={preset.name}
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-medium transition-colors disabled:opacity-50",
-                s.status === "active"
-                  ? `${presetIcon.activeClass} ${presetIcon.colorClass}`
-                  : s.status === "partial"
-                  ? "border-amber-400/50 bg-amber-500/8 text-amber-600 dark:text-amber-400 hover:bg-amber-500/12"
-                  : "border-border-subtle text-faint hover:border-border hover:text-muted"
-              )}
-            >
-              {isLoading
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <Icon className="h-3 w-3" />}
-              <span className="max-w-[140px] truncate">{preset.name}</span>
-              {s.status === "active" && <Check className="h-3 w-3 shrink-0" />}
-              {s.status === "partial" && (
-                <span className="rounded-full bg-amber-500/20 px-1.5 py-px text-[10px] font-semibold">
-                  {s.installed}/{s.total}
-                </span>
-              )}
-            </button>
-          );
-        })}
+            return (
+              <div
+                key={preset.id}
+                className="inline-flex shrink-0 items-stretch overflow-hidden rounded-full border border-border-subtle bg-surface"
+              >
+                <div
+                  title={preset.name}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2.5 py-0.5 text-[12px] font-medium",
+                    s.status === "active"
+                      ? `${presetIcon.activeClass} ${presetIcon.colorClass}`
+                      : s.status === "partial"
+                      ? "bg-amber-500/8 text-amber-600 dark:text-amber-400"
+                      : "text-faint"
+                  )}
+                >
+                  <Icon className="h-3 w-3" />
+                  <span className="max-w-[140px] truncate">{preset.name}</span>
+                  {s.status === "active" && <Check className="h-3 w-3 shrink-0" />}
+                  {s.status === "partial" && (
+                    <span className="rounded-full bg-amber-500/20 px-1.5 py-px text-[10px] font-semibold">
+                      {s.installed}/{s.total}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleActivate(preset)}
+                  disabled={busy || s.installed === s.total}
+                  className="border-l border-border-subtle px-2 py-0.5 text-[11px] font-medium text-action transition-colors hover:bg-action-bg disabled:cursor-not-allowed disabled:text-faint disabled:opacity-60"
+                >
+                  {isAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("presetBar.add")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingRemoval({ preset, count: s.installed })}
+                  disabled={busy || s.installed === 0}
+                  className="border-l border-border-subtle px-2 py-0.5 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:text-faint disabled:opacity-60"
+                >
+                  {isRemoving ? <Loader2 className="h-3 w-3 animate-spin" /> : t("presetBar.remove")}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          open
+          title={t("presetBar.removeTitle")}
+          message={t("presetBar.removeConfirm", {
+            name: pendingRemoval.preset.name,
+            count: pendingRemoval.count,
+          })}
+          details={[t("presetBar.removeKeepsLibrary")]}
+          confirmLabel={t("presetBar.remove")}
+          onClose={() => setPendingRemoval(null)}
+          onConfirm={() => handleDeactivate(pendingRemoval.preset)}
+        />
+      )}
+    </>
   );
 }

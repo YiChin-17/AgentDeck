@@ -27,6 +27,22 @@ export default {
           DEFAULT: 'var(--color-danger)',
           bg: 'var(--color-danger-bg)',
         },
+        action: {
+          DEFAULT: 'var(--color-action)',
+          hover: 'var(--color-action-hover)',
+          bg: 'var(--color-action-bg)',
+          border: 'var(--color-action-border)',
+        },
+        lane: {
+          library: 'var(--color-lane-library)',
+          'library-bg': 'var(--color-lane-library-bg)',
+          codex: 'var(--color-lane-codex)',
+          'codex-bg': 'var(--color-lane-codex-bg)',
+          claude: 'var(--color-lane-claude)',
+          'claude-bg': 'var(--color-lane-claude-bg)',
+          both: 'var(--color-lane-both)',
+          'both-bg': 'var(--color-lane-both-bg)',
+        },
       },
       boxShadow: {
         card: 'var(--shadow-card)',

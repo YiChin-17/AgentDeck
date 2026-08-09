@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   FolderOpen,
   Search,
+  Columns3,
   LayoutGrid,
   List,
   RefreshCw,
@@ -39,6 +40,17 @@ import * as api from "../lib/tauri";
 import type { ProjectSkill, ManagedSkill, ProjectAgentTarget } from "../lib/tauri";
 import { getErrorMessage } from "../lib/error";
 import { AddSkillsSheet } from "../components/AddSkillsSheet";
+import { ArtifactBoard } from "../components/ArtifactBoard";
+import { ArtifactInspector } from "../components/ArtifactInspector";
+import {
+  canonicalTargetsFrom,
+  laneForTargets,
+  otherTargetsFrom,
+  planProjectBoardMutations,
+  runBoardMutationSequence,
+  type BoardCardModel,
+  type BoardLane,
+} from "../components/boardLanes";
 
 const PROJECT_DEFAULT_EXPORT_AGENTS_KEY = "project_default_export_agents";
 const PROJECT_EXPORT_AGENT_PRIORITY = ["claude_code", "codex", "cursor", "gemini_cli", "github_copilot"];
@@ -162,7 +174,9 @@ export function ProjectDetail() {
   const [projectAgentTargets, setProjectAgentTargets] = useState<ProjectAgentTarget[]>([]);
   const [selectedExportAgents, setSelectedExportAgents] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewMode, setViewMode] = useState<"board" | "grid" | "list">("board");
+  const [boardPendingIds, setBoardPendingIds] = useState<Set<string>>(new Set());
+  const [inspectorId, setInspectorId] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<"all" | "enabled" | "disabled">("all");
   const [search, setSearch] = useState("");
   const [tagFilters, setTagFilters] = useState<Set<string>>(new Set());
@@ -496,6 +510,110 @@ export function ProjectDetail() {
       skill.status === "diverged"
     )),
     [selectedSkills]
+  );
+
+  const boardCards = useMemo<BoardCardModel[]>(
+    () =>
+      filtered.map((skill) => {
+        const agentKeys = getAssignedAgents(skill.variants.filter((variant) => variant.enabled));
+        return {
+          id: getSkillKey(skill),
+          title: skill.name,
+          summary: skill.description?.trim() ? skill.description : null,
+          artifactType: t("board.artifactType.skill"),
+          version: null,
+          status: getSyncStatusMeta(t, skill.status).label,
+          canonicalTargets: canonicalTargetsFrom(agentKeys),
+          otherTargets: otherTargetsFrom(agentKeys),
+        };
+      }),
+    [filtered, getSkillKey, t]
+  );
+
+  const inspectorGroup = useMemo(
+    () => (inspectorId ? filtered.find((item) => getSkillKey(item) === inspectorId) ?? null : null),
+    [filtered, getSkillKey, inspectorId]
+  );
+  const inspectorCard = useMemo(
+    () => boardCards.find((card) => card.id === inspectorId) ?? null,
+    [boardCards, inspectorId]
+  );
+  const agentLabels = useMemo(
+    () => Object.fromEntries(projectAgentTargets.map((target) => [target.key, target.display_name])),
+    [projectAgentTargets]
+  );
+
+  /**
+   * Applies a Board lane's Codex/Claude combination to one project Artifact.
+   * Non-canonical agent variants are never added or deleted here, and the Board
+   * re-reads project state afterwards so a failed call keeps the confirmed lane.
+   */
+  const handleBoardMove = useCallback(
+    async (card: BoardCardModel, lane: BoardLane) => {
+      if (!id) return;
+      const skill = filtered.find((item) => getSkillKey(item) === card.id);
+      if (!skill) return;
+      const changes = planProjectBoardMutations(
+        skill.variants.map((variant) => ({
+          agent: variant.agent,
+          enabled: variant.enabled,
+          relativePath: variant.relative_path,
+        })),
+        lane,
+      );
+      if (changes.length === 0) return;
+
+      const missingTarget = changes.find((change) => change.kind === "export");
+      const centerSkillId = skill.centerSkillIds[0];
+      if (missingTarget && !centerSkillId) {
+        const target = projectAgentTargets.find((item) => item.key === missingTarget.agent);
+        toast.error(
+          t("project.agentAddRequiresCenter", { agent: target?.display_name ?? missingTarget.agent })
+        );
+        return;
+      }
+
+      setBoardPendingIds((prev) => new Set(prev).add(card.id));
+      try {
+        await runBoardMutationSequence(
+          changes,
+          async (change) => {
+            if (change.kind === "export") {
+              await api.exportSkillToProject(centerSkillId!, id, [change.agent]);
+            } else {
+              await api.toggleProjectSkill(
+                id,
+                change.relativePath,
+                change.agent,
+                change.enabled,
+              );
+            }
+          },
+          async (change) => {
+            if (change.kind === "export") {
+              await api.deleteProjectSkill(id, skill.relative_path, change.agent);
+            } else {
+              await api.toggleProjectSkill(
+                id,
+                change.relativePath,
+                change.agent,
+                !change.enabled,
+              );
+            }
+          },
+        );
+      } catch (error: unknown) {
+        toast.error(getErrorMessage(error, t("board.moveFailed")));
+      } finally {
+        await Promise.all([loadSkills(), refreshProjects()]);
+        setBoardPendingIds((prev) => {
+          const nextPending = new Set(prev);
+          nextPending.delete(card.id);
+          return nextPending;
+        });
+      }
+    },
+    [id, filtered, getSkillKey, projectAgentTargets, t, loadSkills, refreshProjects]
   );
 
   const handleOpenDetail = async (skill: ProjectSkillGroup) => {
@@ -834,8 +952,8 @@ export function ProjectDetail() {
   if (!project) return null;
 
   return (
-    <div className="app-page">
-      <div className="app-page-header flex flex-col gap-2.5 pb-3 pr-2">
+    <div className="app-page app-page-wide app-page-board">
+      <div className="app-board-toolbar app-page-header flex flex-col gap-2.5 pb-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-[1_1_260px]">
             <h1 className="app-page-title flex items-center gap-2.5">
@@ -885,6 +1003,16 @@ export function ProjectDetail() {
                 title={t("common.refresh")}
               >
                 <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              </button>
+              <button
+                onClick={() => setViewMode("board")}
+                className={cn(
+                  "rounded-md p-2 transition-colors outline-none",
+                  viewMode === "board" ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
+                )}
+                title={t("board.viewBoard")}
+              >
+                <Columns3 className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setViewMode("grid")}
@@ -1054,6 +1182,8 @@ export function ProjectDetail() {
         />
       )}
 
+      <div className="app-board-content">
+      <div className="app-board-view">
       {loading ? (
         <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center">
           <div className="text-[13px] text-muted">{t("common.loading")}</div>
@@ -1080,10 +1210,19 @@ export function ProjectDetail() {
             </button>
           )}
         </div>
+      ) : viewMode === "board" ? (
+        <ArtifactBoard
+          cards={boardCards}
+          selectedId={inspectorId}
+          onSelect={(card) => setInspectorId(card.id)}
+          onMoveToLane={handleBoardMove}
+          libraryLaneLabel={t("board.lanes.undeployed")}
+          pendingIds={boardPendingIds}
+        />
       ) : (
         <div
           className={cn(
-            "pb-8",
+            "app-list-scroll pb-8",
             viewMode === "grid"
               ? "grid grid-cols-2 gap-3 lg:grid-cols-3"
               : "flex flex-col gap-0.5"
@@ -1115,7 +1254,7 @@ export function ProjectDetail() {
                     isMultiSelect && isSelected && "ring-1 ring-accent border-accent/40"
                   )}
                   onClick={() =>
-                    isMultiSelect ? toggleSelect(skillKey) : handleOpenDetail(skill)
+                    isMultiSelect ? toggleSelect(skillKey) : setInspectorId(skillKey)
                   }
                 >
                   <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-1.5">
@@ -1268,7 +1407,7 @@ export function ProjectDetail() {
                   isMultiSelect && isSelected && "ring-1 ring-accent border-accent/40"
                 )}
                 onClick={() =>
-                  isMultiSelect ? toggleSelect(skillKey) : handleOpenDetail(skill)
+                  isMultiSelect ? toggleSelect(skillKey) : setInspectorId(skillKey)
                 }
               >
                 <div className="flex h-4 w-4 shrink-0 items-center justify-center">
@@ -1414,6 +1553,33 @@ export function ProjectDetail() {
           })}
         </div>
       )}
+      </div>
+      {inspectorCard && inspectorGroup && (
+        <ArtifactInspector
+          card={inspectorCard}
+          description={inspectorGroup.description}
+          whenToUse={null}
+          deploymentMode={null}
+          sourcePath={inspectorGroup.primaryVariant.path}
+          syncState={getSyncStatusMeta(t, inspectorGroup.status).label}
+          agentLabels={agentLabels}
+          busy={boardPendingIds.has(inspectorCard.id)}
+          onToggleTarget={(target, enabled) =>
+            handleBoardMove(
+              inspectorCard,
+              laneForTargets({ ...inspectorCard.canonicalTargets, [target]: enabled })
+            )
+          }
+          onOpenDiff={
+            inspectorGroup.centerSkillIds.length > 0
+              ? () => void handleOpenDetail(inspectorGroup)
+              : null
+          }
+          onOpenDetails={() => void handleOpenDetail(inspectorGroup)}
+          onClose={() => setInspectorId(null)}
+        />
+      )}
+      </div>
 
       {/* Skill Document Detail Panel */}
       {detailSkill && project && (

@@ -28,6 +28,22 @@
     --color-accent-border: rgba(5,150,105,0.25);
     --color-danger: #DC2626;
     --color-danger-bg: rgba(220,38,38,0.08);
+    /* Primary action is blue; --color-accent stays green for positive/success
+       states so "action" and "succeeded" never read as the same signal. */
+    --color-action: #2563EB;
+    --color-action-hover: #1D4ED8;
+    --color-action-bg: rgba(37,99,235,0.08);
+    --color-action-border: rgba(37,99,235,0.35);
+    --color-focus-ring: rgba(37,99,235,0.45);
+    /* Board lane cues: Library neutral, Codex blue, Claude orange, Both purple. */
+    --color-lane-library: #71717A;
+    --color-lane-library-bg: rgba(113,113,122,0.10);
+    --color-lane-codex: #2563EB;
+    --color-lane-codex-bg: rgba(37,99,235,0.10);
+    --color-lane-claude: #EA580C;
+    --color-lane-claude-bg: rgba(234,88,12,0.10);
+    --color-lane-both: #7C3AED;
+    --color-lane-both-bg: rgba(124,58,237,0.10);
   }
 
   /* Dark theme */
@@ -54,6 +70,19 @@
     --color-accent-border: rgba(16,185,129,0.25);
     --color-danger: #EF4444;
     --color-danger-bg: rgba(239,68,68,0.08);
+    --color-action: #3B82F6;
+    --color-action-hover: #60A5FA;
+    --color-action-bg: rgba(59,130,246,0.14);
+    --color-action-border: rgba(59,130,246,0.40);
+    --color-focus-ring: rgba(96,165,250,0.55);
+    --color-lane-library: #A1A1AA;
+    --color-lane-library-bg: rgba(161,161,170,0.14);
+    --color-lane-codex: #60A5FA;
+    --color-lane-codex-bg: rgba(96,165,250,0.16);
+    --color-lane-claude: #FB923C;
+    --color-lane-claude-bg: rgba(251,146,60,0.16);
+    --color-lane-both: #A78BFA;
+    --color-lane-both-bg: rgba(167,139,250,0.16);
   }
 
   /* System preference fallback (when no .dark class and user chose "system") */
@@ -93,6 +122,32 @@
     @apply max-w-[1040px];
   }
 
+  /* Board pages use the full content width so four lanes plus the Inspector fit. */
+  .app-page-wide {
+    @apply max-w-none;
+  }
+
+  /* Board routes keep page chrome outside the content scrollers. */
+  .app-page-board {
+    @apply min-h-0 flex-1 overflow-hidden pb-0;
+  }
+
+  .app-board-toolbar {
+    @apply shrink-0 bg-background;
+  }
+
+  .app-board-content {
+    @apply flex min-h-0 flex-1 items-start gap-4 overflow-hidden;
+  }
+
+  .app-board-view {
+    @apply flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden;
+  }
+
+  .app-list-scroll {
+    @apply min-h-0 flex-1 overflow-y-auto scrollbar-hide;
+  }
+
   .app-page-header {
     @apply border-b border-border-subtle pb-4;
   }
@@ -122,7 +177,7 @@
   }
 
   .app-input {
-    @apply h-10 rounded-lg border border-border-subtle bg-surface px-3 text-[13px] text-secondary outline-none transition-colors placeholder:text-faint focus:border-border;
+    @apply h-10 rounded-lg border border-border-subtle bg-surface px-3 text-[13px] text-secondary outline-none transition-colors placeholder:text-faint focus:border-action focus:ring-2 focus:ring-[var(--color-focus-ring)];
   }
 
   .app-segmented {
@@ -131,18 +186,21 @@
 
   .app-segmented-button {
     @apply rounded-md px-3 py-2 text-[13px] font-medium text-muted transition-colors outline-none hover:text-tertiary;
+    @apply focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)];
   }
 
   .app-segmented-button-active {
-    @apply bg-surface-active text-secondary;
+    @apply bg-action-bg text-action;
   }
 
   .app-button-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-accent-border bg-accent-dark px-4 py-2.5 text-[13px] font-medium text-white transition-colors outline-none hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-action-border bg-action px-4 py-2.5 text-[13px] font-medium text-white transition-colors outline-none hover:bg-action-hover disabled:cursor-not-allowed disabled:opacity-50;
+    @apply focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-background;
   }
 
   .app-button-secondary {
     @apply inline-flex items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2.5 text-[13px] font-medium text-secondary transition-colors outline-none hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50;
+    @apply focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-background;
   }
 
   .app-badge {

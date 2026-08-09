@@ -1436,7 +1436,6 @@ export function Settings() {
               </div>
               <div className="app-segmented flex-wrap bg-background">
                 {([
-                  { value: "zh", label: "简体中文" },
                   { value: "zh-TW", label: "繁體中文" },
                   { value: "en", label: "English" },
                 ] as const).map((opt) => (

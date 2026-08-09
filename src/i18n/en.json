@@ -9,8 +9,8 @@
     "lobsterAgents": "Lobster Agents",
     "installSkills": "Install Skills",
     "backup": "Backup",
-    "presets": "Presets",
-    "newPreset": "New Preset",
+    "presets": "Skill Packs",
+    "newPreset": "New Skill Pack",
     "projects": "Project Workspaces",
     "addProject": "Link Project",
     "settings": "Settings"
@@ -18,15 +18,15 @@
   "help": {
     "eyebrow": "Guide",
     "title": "Quick Start for Skills Manager",
-    "description": "Fastest path: install skills → open Global Workspace → click a Preset pill to activate. Press ⌘K anytime for the command palette. Use Project Workspaces, Git backup, and Settings as needed.",
+    "description": "Fastest path: install skills → open Global Workspace → use Add on a Skill Pack. Press ⌘K anytime for the command palette. Use Project Workspaces, Git backup, and Settings as needed.",
     "items": {
       "workflows": {
         "title": "Recommended Workflows",
-        "description": "Single-agent: install skills → open Global Workspace → click a Preset pill to activate, or hit + Add Skills to pick from your library and toggle target agents inline. Multi-project: open a Project Workspace and use the same Preset pills or + Add Skills picker for that project's agents. Multi-machine: turn on Git Backup in Settings to sync your library across devices."
+        "description": "Single-agent: install skills → open Global Workspace → use Add on a Skill Pack, or hit + Add Skills to pick from your library and toggle target agents inline. Multi-project: open a Project Workspace and use the same explicit Skill Pack actions or + Add Skills picker for that project's agents. Multi-machine: turn on Git Backup in Settings to sync your library across devices."
       },
       "presets": {
-        "title": "Presets",
-        "description": "Group skills into named presets. In any workspace, click a Preset pill to instantly activate or deactivate all its skills for the current agent scope. Active presets show ✓; partially installed ones show a count. Applying a preset is a one-time copy — not a live sync."
+        "title": "Skill Packs",
+        "description": "Group any mix of skills into named Skill Packs. In a workspace, use Add to install missing items or Remove to review the exact affected count before confirmation. Applying a Skill Pack is a one-time copy — not a live sync."
       },
       "install": {
         "title": "Install Skills",
@@ -42,7 +42,7 @@
       },
       "projects": {
         "title": "Project Workspaces",
-        "description": "Link a project to browse per-agent local skill folders, compare with the central library, and import or export changes. Use Preset pills to activate skill groups, or open + Add Skills to pick from your library with a multi-agent target picker."
+        "description": "Link a project to browse per-agent local skill folders, compare with the central library, and import or export changes. Use explicit Skill Pack Add or Remove actions, or open + Add Skills to pick from your library with a multi-agent target picker."
       },
       "backup": {
         "title": "Backup & Sync",
@@ -55,10 +55,10 @@
     }
   },
   "commandPalette": {
-    "placeholder": "Jump to skill, preset, project, action…",
+    "placeholder": "Jump to skill, Skill Pack, project, action…",
     "empty": "No matches. Try a different query.",
     "skills": "Skills",
-    "presets": "Presets",
+    "presets": "Skill Packs",
     "projects": "Projects",
     "actions": "Actions",
     "scanImport": "Scan & import local skills",
@@ -161,7 +161,7 @@
       "deviceDenied": "Authorization was declined on GitHub. Nothing was changed.",
       "deviceFallbackPat": "If github.com is hard to reach from your network, use a personal access token below instead.",
       "patToggle": "Use a personal access token instead (advanced)",
-      "publicRepoWarning": "Heads up: the connected backup repository is PUBLIC — anyone can read your skills, tags, and presets. If that's not intended, make it private on GitHub: repository Settings → General → Danger Zone → Change visibility.",
+      "publicRepoWarning": "Heads up: the connected backup repository is PUBLIC — anyone can read your skills, tags, and Skill Packs. If that's not intended, make it private on GitHub: repository Settings → General → Danger Zone → Change visibility.",
       "reconnect": "Reconnect GitHub",
       "reconnectTitle": "Reconnect GitHub"
     },
@@ -173,7 +173,7 @@
       "title": "Backup Scope",
       "included": {
         "skills": "Skills and their files",
-        "metadata": "Tags, presets, preset membership, and per-agent skill toggles"
+        "metadata": "Tags, Skill Packs, Skill Pack membership, and per-agent skill toggles"
       },
       "excluded": {
         "secrets": "API keys, tokens, and proxy credentials",
@@ -223,14 +223,14 @@
   },
   "mySkills": {
     "title": "Library",
-    "applyToDefault": "Apply Preset",
+    "applyToDefault": "Apply Skill Pack",
     "applied": "Applied",
     "notAppliedYet": "Not applied yet",
     "appliedToast": "Applied",
     "applyMissingDefault": "No enabled agent installed — apply needs at least one location.",
     "defaultLocationMissing": "Default location missing",
     "openLocationSettings": "Open settings",
-    "applyCallout": "Clicking a preset only opens it. Use Apply Preset to add or remove its skills from selected agents.",
+    "applyCallout": "Selecting a Skill Pack in the sidebar only opens it for browsing. Use the separately labeled Add or Remove action in a workspace to change deployments.",
     "subtitle": "{{count}} skills from the central library are enabled in “{{preset}}”",
     "searchPlaceholder": "Search skills in the central library...",
     "allStatus": "All Status",
@@ -240,26 +240,26 @@
     "enable": "Enable",
     "enabledButton": "Enabled",
     "disable": "Disable",
-    "enableForPreset": "Enable for current preset",
-    "disableForPreset": "Disable for current preset",
-    "enabledInPreset": "Added to current preset",
-    "disabledInPreset": "Removed from current preset",
-    "inPreset": "Enabled in current preset",
-    "notInPreset": "Not enabled in current preset",
-    "remove": "Remove from preset",
+    "enableForPreset": "Enable for current Skill Pack",
+    "disableForPreset": "Disable for current Skill Pack",
+    "enabledInPreset": "Added to current Skill Pack",
+    "disabledInPreset": "Removed from current Skill Pack",
+    "inPreset": "Enabled in current Skill Pack",
+    "notInPreset": "Not enabled in current Skill Pack",
+    "remove": "Remove from Skill Pack",
     "moreActions": "More actions",
     "dragToReorder": "Drag to reorder",
     "delete": "Delete skill",
-    "deleteConfirm": "Delete skill \"{{name}}\" permanently? This removes its central library files, preset links, and synced agent targets.",
+    "deleteConfirm": "Delete skill \"{{name}}\" permanently? This removes its central library files, Skill Pack links, and synced agent targets.",
     "deleted": "deleted",
     "viewDoc": "View docs",
     "noSkills": "No skills to display",
     "addFirst": "Click \"Install Skills\" to add skills into the central library",
     "noMatch": "No skills match the current search or filter",
     "clearFilters": "Clear filters",
-    "noPreset": "No preset is currently available",
-    "currentPresetFallback": "Current preset",
-    "presetCount": "{{count}} presets",
+    "noPreset": "No Skill Pack is currently available",
+    "currentPresetFallback": "Current Skill Pack",
+    "presetCount": "{{count}} Skill Packs",
     "syncCoverage": "Sync coverage",
     "syncSummary": "{{synced}} / {{total}} synced",
     "moreAgents": "+{{count}} more",
@@ -413,7 +413,7 @@
     "batchAlreadyUpToDate": "{{count}} skills already up to date",
     "batchUpdateFailed": "{{count}} skills failed to refresh",
     "deleteSelected": "Delete {{count}}",
-    "batchDeleteConfirm": "Delete {{count}} selected skills permanently? This removes their central library files, preset links, and synced agent targets.",
+    "batchDeleteConfirm": "Delete {{count}} selected skills permanently? This removes their central library files, Skill Pack links, and synced agent targets.",
     "batchDeleted": "{{count}} skills deleted",
     "batchDeleteFailed": "{{count}} skills failed to delete",
     "batchToggleFailed": "{{count}} skills failed to update",
@@ -536,7 +536,8 @@
         "pending": "Pending",
         "imported": "Imported"
       }
-    }
+    },
+    "gitReinstall": "Reinstall & Update"
   },
   "settings": {
     "title": "Settings",
@@ -588,7 +589,7 @@
     "addAgent": "Add",
     "globalConfig": "Global Configuration",
     "repoPath": "Central Repository Path",
-    "repoPathDesc": "Default storage location for all Skills and preset configs.",
+    "repoPathDesc": "Default storage location for all Skills and Skill Pack configs.",
     "repoPathSaved": "Central repository path updated",
     "repoPathReset": "Central repository path reset to default",
     "repoPathRestartNotice": "Restart the app to apply the new path and migrate existing data.",
@@ -601,8 +602,8 @@
     "syncModeDesc": "Symlinks are recommended — minimal disk usage with live updates. Applies to both global and project workspaces; note that symlinks in a project point to this machine's central library and won't travel with the repo.",
     "symlink": "Symlink",
     "copy": "File Copy",
-    "currentPreset": "Current Preset",
-    "currentPresetDesc": "Switch the app to another preset and refresh active skills immediately.",
+    "currentPreset": "Current Skill Pack",
+    "currentPresetDesc": "Choose which Skill Pack to browse and edit in the Library. This does not change Agent deployments.",
     "theme": "Theme",
     "themeDesc": "Choose the app appearance.",
     "themeLight": "Light",
@@ -618,7 +619,7 @@
     "help": "Help",
     "about": "About",
     "version": "Skills Manager 1.30.0",
-    "tagline": "Cross-platform. Minimal, efficient, seamless multi-preset switching.",
+    "tagline": "Cross-platform. Minimal, efficient Skill Pack management.",
     "checkUpdate": "Check for Updates",
     "checking": "Checking…",
     "updateAvailable": "New version {{version}} available!",
@@ -769,13 +770,15 @@
     "loadFailed": "Failed to load {{item}}",
     "dataOutOfDate": "Some data could not be refreshed",
     "documentMissing": "No document file was found",
-    "presets": "presets",
+    "presets": "Skill Packs",
     "agents": "agent status",
     "skills": "skill list",
     "success": "Operation successful",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "delete": "Delete",
+    "close": "Close",
+    "refresh": "Refresh",
     "rename": "Rename",
     "save": "Save",
     "create": "Create",
@@ -823,16 +826,16 @@
     }
   },
   "preset": {
-    "create": "New Preset",
-    "name": "Preset Name",
+    "create": "New Skill Pack",
+    "name": "Skill Pack Name",
     "description": "Description (optional)",
-    "icon": "Preset Icon",
-    "namePlaceholder": "Enter preset name...",
-    "descPlaceholder": "Briefly describe this preset...",
-    "deleteConfirm": "Delete preset \"{{name}}\"? Skills will remain in the central repo.",
-    "renamed": "Preset renamed",
-    "deleted": "Preset deleted",
-    "created": "Preset created",
+    "icon": "Skill Pack Icon",
+    "namePlaceholder": "Enter Skill Pack name...",
+    "descPlaceholder": "Briefly describe this Skill Pack...",
+    "deleteConfirm": "Delete Skill Pack \"{{name}}\"? Skills will remain in the central repo.",
+    "renamed": "Skill Pack renamed",
+    "deleted": "Skill Pack deleted",
+    "created": "Skill Pack created",
     "switched": "Switched to \"{{name}}\""
   },
   "project": {
@@ -860,7 +863,7 @@
     "tabManual": "Manual",
     "tabScan": "Scan",
     "tabLinked": "Linked Workspace",
-    "addLinkedHint": "Link an external skills root. It will be managed as a workspace only and will not participate in global preset sync.",
+    "addLinkedHint": "Link an external skills root. It will be managed as a workspace only and will not participate in global Skill Pack sync.",
     "linkedNamePlaceholder": "Workspace name",
     "linkedPathPlaceholder": "Skills directory path",
     "linkedDisabledPathHint": "A sibling directory with the \"-disabled\" suffix will be created automatically for disabled skills.",
@@ -964,17 +967,17 @@
     "batchTagsFailed": "{{count}} center skills failed to update tags"
   },
   "presetActions": {
-    "button": "Apply Preset",
-    "applyToProject": "Apply Preset to This Project",
-    "applyToGlobal": "Apply Preset to Global Workspace",
-    "preset": "Preset",
+    "button": "Apply Skill Pack",
+    "applyToProject": "Apply Skill Pack to This Project",
+    "applyToGlobal": "Apply Skill Pack to Global Workspace",
+    "preset": "Skill Pack",
     "action": "Action",
     "addMissing": "Add missing skills",
     "removeMatching": "Remove matching skills",
     "agents": "Agents",
     "selectAgents": "Select at least one agent",
-    "noPresets": "No presets available",
-    "noPresetSkills": "This preset has no skills",
+    "noPresets": "No Skill Packs available",
+    "noPresetSkills": "This Skill Pack has no skills",
     "addHelp": "Adds missing skills only. Existing skills are skipped.",
     "removeHelp": "Removes selected matching skills from the selected agents only.",
     "addSummary": "{{count}} skill-agent additions ready; {{skipped}} existing will be skipped.",
@@ -993,13 +996,18 @@
     "statusActive": "Active",
     "statusPartial": "{{installed}} / {{total}}",
     "statusInactive": "Not added",
-    "activate": "Activate",
-    "deactivate": "Deactivate"
+    "activate": "Add",
+    "deactivate": "Remove"
   },
   "presetBar": {
-    "shiftClickHint": "{{name}} · Shift+click to toggle",
+    "shiftClickHint": "{{name}}",
     "skillCount": "{{count}} skills",
-    "deactivateConfirm": "Remove all {{count}} installed skills from \"{{name}}\"?"
+    "deactivateConfirm": "Remove all {{count}} installed skills from \"{{name}}\"?",
+    "add": "Add",
+    "remove": "Remove",
+    "removeTitle": "Remove Skill Pack from this workspace?",
+    "removeConfirm": "Remove {{count}} matching Skill-Agent item(s) from \"{{name}}\" in this workspace?",
+    "removeKeepsLibrary": "Central Skills and Skill Pack membership will remain unchanged."
   },
   "lobsterWorkspace": {
     "title": "Lobster Agents",
@@ -1059,6 +1067,36 @@
         "centerNewer": "Center changed",
         "diverged": "Conflict"
       }
+    }
+  },
+  "board": {
+    "viewBoard": "Board view",
+    "laneEmpty": "No Artifacts in this lane",
+    "unavailable": "Not provided",
+    "otherTargets": "{{count}} other Agents",
+    "moveFailed": "Could not update targets",
+    "lanes": {
+      "library": "Library",
+      "undeployed": "Undeployed",
+      "codex": "Codex",
+      "claude": "Claude",
+      "both": "Both"
+    },
+    "artifactType": {
+      "skill": "Skill"
+    },
+    "status": {
+      "updateAvailable": "Update available"
+    },
+    "inspector": {
+      "whenToUse": "When to use",
+      "targets": "Targets",
+      "otherTargets": "Other Agents",
+      "deploymentMode": "Deployment mode",
+      "sourcePath": "Source path",
+      "syncState": "Sync state",
+      "openDiff": "View diff",
+      "openDetails": "Open full details"
     }
   }
 }

@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
 import * as api from "../lib/tauri";
 
 export type Theme = "light" | "dark" | "system";
@@ -10,6 +15,12 @@ function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
+}
+
+function subscribeSystemTheme(onChange: () => void) {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
 }
 
 function applyThemeClass(resolved: ResolvedTheme) {
@@ -26,25 +37,20 @@ export function useTheme() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark" || stored === "system")
       return stored;
-    return "dark";
+    // Light is the product default; a stored or backend preference still wins.
+    return "light";
   });
 
+  // 訂閱系統外觀而非只讀一次，系統切換時才會重繪，讓 resolvedTheme 的消費端拿到新值
+  const systemTheme = useSyncExternalStore(subscribeSystemTheme, getSystemTheme);
+
   const resolvedTheme: ResolvedTheme =
-    theme === "system" ? getSystemTheme() : theme;
+    theme === "system" ? systemTheme : theme;
 
   // Apply class on mount and theme change
   useEffect(() => {
     applyThemeClass(resolvedTheme);
   }, [resolvedTheme]);
-
-  // Listen for system preference changes when in "system" mode
-  useEffect(() => {
-    if (theme !== "system") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => applyThemeClass(getSystemTheme());
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [theme]);
 
   // Load from Tauri settings on mount
   useEffect(() => {

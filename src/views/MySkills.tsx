@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
+  Columns3,
   LayoutGrid,
   List,
   CheckCircle2,
@@ -64,6 +65,19 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { ArtifactBoard } from "../components/ArtifactBoard";
+import { ArtifactInspector } from "../components/ArtifactInspector";
+import {
+  CLAUDE_TOOL_KEY,
+  CODEX_TOOL_KEY,
+  canonicalTargetsFrom,
+  laneForTargets,
+  otherTargetsFrom,
+  runBoardMutationSequence,
+  targetsForLane,
+  type BoardCardModel,
+  type BoardLane,
+} from "../components/boardLanes";
 
 interface SortableSkillItemProps {
   id: string;
@@ -144,7 +158,9 @@ export function MySkills() {
     projects,
     refreshProjects,
   } = useApp();
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewMode, setViewMode] = useState<"board" | "grid" | "list">("board");
+  const [boardPendingIds, setBoardPendingIds] = useState<Set<string>>(new Set());
+  const [inspectorId, setInspectorId] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<"all" | "enabled" | "available">("all");
   const [sourceFilters, setSourceFilters] = useState<Set<string>>(new Set());
   const [tagFilters, setTagFilters] = useState<Set<string>>(new Set());
@@ -503,6 +519,50 @@ export function MySkills() {
       }
     },
     [togglingTarget, tools, t, refreshManagedSkills]
+  );
+
+  /**
+   * Applies the exact Codex/Claude combination a Board lane represents. Only the
+   * two canonical targets are touched, so every other Agent target survives. The
+   * Board reads from server state, so a failed call leaves the card in its
+   * confirmed lane after the refresh.
+   */
+  const handleBoardMove = useCallback(
+    async (card: BoardCardModel, lane: BoardLane) => {
+      const skill = skills.find((item) => item.id === card.id);
+      if (!skill) return;
+      const next = targetsForLane(lane);
+      const current = canonicalTargetsFrom(skill.targets.map((target) => target.tool));
+      const changes: Array<[string, boolean]> = [];
+      if (next.codex !== current.codex) changes.push([CODEX_TOOL_KEY, next.codex]);
+      if (next.claude !== current.claude) changes.push([CLAUDE_TOOL_KEY, next.claude]);
+      if (changes.length === 0) return;
+
+      setBoardPendingIds((prev) => new Set(prev).add(card.id));
+      try {
+        await runBoardMutationSequence(
+          changes,
+          async ([toolKey, enabled]) => {
+            if (enabled) await api.syncSkillToTool(skill.id, toolKey);
+            else await api.unsyncSkillFromTool(skill.id, toolKey);
+          },
+          async ([toolKey, enabled]) => {
+            if (enabled) await api.unsyncSkillFromTool(skill.id, toolKey);
+            else await api.syncSkillToTool(skill.id, toolKey);
+          },
+        );
+      } catch (error: unknown) {
+        toast.error(getErrorMessage(error, t("board.moveFailed")));
+      } finally {
+        await refreshManagedSkills();
+        setBoardPendingIds((prev) => {
+          const nextPending = new Set(prev);
+          nextPending.delete(card.id);
+          return nextPending;
+        });
+      }
+    },
+    [skills, refreshManagedSkills, t]
   );
 
   const scheduleRefreshAfterDelete = useCallback(() => {
@@ -990,8 +1050,58 @@ export function MySkills() {
     return null;
   };
 
+  const inspectorSkill = useMemo(
+    () => (inspectorId ? skills.find((skill) => skill.id === inspectorId) ?? null : null),
+    [inspectorId, skills]
+  );
+  const inspectorDeploymentMode = useMemo(() => {
+    const modes = Array.from(new Set((inspectorSkill?.targets ?? []).map((target) => target.mode)));
+    return modes.length > 0 ? modes.join("、") : null;
+  }, [inspectorSkill]);
+  const inspectorSyncState = useMemo(() => {
+    const targets = inspectorSkill?.targets ?? [];
+    if (targets.length === 0) return null;
+    const latest = targets.reduce<number | null>(
+      (acc, target) => (target.synced_at && (!acc || target.synced_at > acc) ? target.synced_at : acc),
+      null
+    );
+    const statuses = Array.from(new Set(targets.map((target) => target.status))).join("、");
+    return latest ? `${statuses} · ${new Date(latest * 1000).toLocaleString()}` : statuses;
+  }, [inspectorSkill]);
+  const agentLabels = useMemo(
+    () => Object.fromEntries(tools.map((tool) => [tool.key, tool.display_name])),
+    [tools]
+  );
+
+  const boardCards = useMemo<BoardCardModel[]>(
+    () =>
+      filtered.map((skill) => {
+        const toolKeys = skill.targets.map((target) => target.tool);
+        return {
+          id: skill.id,
+          title: skillDisplayNames.get(skill.id) || skill.name,
+          summary: skill.description?.trim() ? skill.description : null,
+          artifactType: t("board.artifactType.skill"),
+          version: skill.source_revision ? skill.source_revision.slice(0, 7) : null,
+          status:
+            skill.update_status === "update_available"
+              ? t("board.status.updateAvailable")
+              : null,
+          canonicalTargets: canonicalTargetsFrom(toolKeys),
+          otherTargets: otherTargetsFrom(toolKeys),
+        };
+      }),
+    [filtered, skillDisplayNames, t]
+  );
+
+  const inspectorCard = useMemo(
+    () => boardCards.find((card) => card.id === inspectorId) ?? null,
+    [boardCards, inspectorId]
+  );
+
   return (
-    <div className="app-page">
+    <div className="app-page app-page-wide app-page-board">
+      <div className="app-board-toolbar flex flex-col gap-4 pb-3">
       <div className="app-page-header pr-2 pb-1 flex items-center justify-between gap-3">
         <h1 className="app-page-title flex items-center gap-2">
           {t("mySkills.title")}
@@ -1072,6 +1182,16 @@ export function MySkills() {
             {t("mySkills.updateActions.updateAvailable", { count: availableUpdateCount })}
           </button>
           <button
+            onClick={() => setViewMode("board")}
+            className={cn(
+              "rounded-md p-2 transition-colors outline-none",
+              viewMode === "board" ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
+            )}
+            title={t("board.viewBoard")}
+          >
+            <Columns3 className="h-4 w-4" />
+          </button>
+          <button
             onClick={() => setViewMode("grid")}
             className={cn(
               "rounded-md p-2 transition-colors outline-none",
@@ -1101,8 +1221,9 @@ export function MySkills() {
           </button>
         </div>
       </div>
+      </div>
 
-      <div className="flex flex-wrap items-center gap-1 px-1 -mt-2 -mb-3">
+      <div className="flex flex-wrap items-center gap-1 px-1">
         {(["local", "import", "git", "skillssh"] as const).map((src) => (
           <button
             key={src}
@@ -1195,6 +1316,8 @@ export function MySkills() {
         />
       )}
 
+      <div className="app-board-content">
+      <div className="app-board-view">
       {filtered.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center">
           <Layers className="mb-4 h-12 w-12 text-faint" />
@@ -1208,6 +1331,14 @@ export function MySkills() {
             </button>
           )}
         </div>
+      ) : viewMode === "board" ? (
+        <ArtifactBoard
+          cards={boardCards}
+          selectedId={inspectorId}
+          onSelect={(card) => setInspectorId(card.id)}
+          onMoveToLane={handleBoardMove}
+          pendingIds={boardPendingIds}
+        />
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext
@@ -1216,7 +1347,7 @@ export function MySkills() {
           >
           <div
             className={cn(
-              "pb-8",
+              "app-list-scroll pb-8",
               viewMode === "grid"
                 ? "grid grid-cols-2 gap-3 lg:grid-cols-3"
                 : "flex flex-col gap-0.5"
@@ -1258,7 +1389,7 @@ export function MySkills() {
                     isMultiSelect && selectedIds.has(skill.id) && "ring-1 ring-accent border-accent/40"
                   )}
                   onClick={() =>
-                    isMultiSelect ? toggleSelect(skill.id) : openSkillDetailById(skill.id)
+                    isMultiSelect ? toggleSelect(skill.id) : setInspectorId(skill.id)
                   }
                 >
                   {deletingIds.has(skill.id) && (
@@ -1519,7 +1650,7 @@ export function MySkills() {
                   isMultiSelect && selectedIds.has(skill.id) && "ring-1 ring-accent border-accent/40"
                 )}
                 onClick={() =>
-                  isMultiSelect ? toggleSelect(skill.id) : openSkillDetailById(skill.id)
+                  isMultiSelect ? toggleSelect(skill.id) : setInspectorId(skill.id)
                 }
               >
                 {deletingIds.has(skill.id) && (
@@ -1701,6 +1832,31 @@ export function MySkills() {
           </SortableContext>
         </DndContext>
       )}
+      </div>
+      {inspectorCard && inspectorSkill && (
+        <ArtifactInspector
+          card={inspectorCard}
+          description={inspectorSkill.description}
+          whenToUse={null}
+          deploymentMode={inspectorDeploymentMode}
+          sourcePath={inspectorSkill.central_path}
+          syncState={inspectorSyncState}
+          agentLabels={agentLabels}
+          busy={boardPendingIds.has(inspectorCard.id)}
+          onToggleTarget={(target, enabled) =>
+            handleBoardMove(
+              inspectorCard,
+              laneForTargets({ ...inspectorCard.canonicalTargets, [target]: enabled })
+            )
+          }
+          onOpenDiff={
+            inspectorSkill.source_ref ? () => openSkillDetailById(inspectorSkill.id) : null
+          }
+          onOpenDetails={() => openSkillDetailById(inspectorSkill.id)}
+          onClose={() => setInspectorId(null)}
+        />
+      )}
+      </div>
 
       <SkillDetailPanel
         key={selectedSkill?.id ?? "skill-detail-empty"}

@@ -149,7 +149,7 @@ export function CommandPalette() {
         kind: "action",
         label: t("sidebar.dashboard"),
         icon: <Home className="h-3.5 w-3.5" />,
-        run: () => navigate("/"),
+        run: () => navigate("/dashboard"),
       },
       {
         id: "action:my-skills",

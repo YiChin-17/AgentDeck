@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { StatusBanner } from "./StatusBanner";
 import { CommandPalette } from "./CommandPalette";
@@ -12,6 +12,11 @@ export function Layout() {
   const { appError, refreshAppData } = useApp();
   const onDrag = useDragWindow();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Board routes need the full content width for four lanes plus the Inspector;
+  // every other route keeps the centred reading column.
+  const isBoardRoute =
+    location.pathname === "/my-skills" || location.pathname.startsWith("/project/");
 
   // Cmd+, to open Settings
   useEffect(() => {
@@ -38,12 +43,24 @@ export function Layout() {
       {/* Full-width top drag bar — spans sidebar + content, with bottom divider */}
       <div
         onMouseDown={onDrag}
-        className="absolute inset-x-0 top-0 z-50 h-[28px] border-b border-border-subtle bg-bg-secondary"
+        className="fixed inset-x-0 top-0 z-50 h-[28px] border-b border-border-subtle bg-bg-secondary"
       />
       <Sidebar />
       <div className="relative flex min-w-[600px] flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-[calc(28px+20px)] scrollbar-hide">
-          <div className="mx-auto flex min-h-full max-w-[1200px] flex-col gap-4">
+        <div
+          className={
+            isBoardRoute
+              ? "flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-5 pt-[calc(28px+20px)]"
+              : "flex-1 overflow-y-auto px-5 pb-5 pt-[calc(28px+20px)] scrollbar-hide"
+          }
+        >
+          <div
+            className={
+              isBoardRoute
+                ? "flex min-h-0 w-full flex-1 flex-col gap-4 overflow-hidden"
+                : "mx-auto flex min-h-full max-w-[1200px] flex-col gap-4"
+            }
+          >
             {appError ? (
               <StatusBanner
                 compact
