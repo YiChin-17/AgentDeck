@@ -176,25 +176,36 @@ fn collect_watch_paths(store: &SkillStore) -> Vec<PathBuf> {
             let project_path = PathBuf::from(&project.path);
             seen_dirs.clear();
             for adapter in &adapters {
-                let project_dir = adapter.project_relative_skills_dir();
-                if project_dir.is_empty() {
-                    continue;
-                }
-                if !seen_dirs.insert(project_dir.to_string()) {
-                    continue;
-                }
-                let skills_dir = project_path.join(project_dir);
-                let disabled_dir = project_path.join(format!("{}-disabled", project_dir));
+                // Discovery-only project roots are watched too: they are read on
+                // every workspace scan, so an external edit there must refresh
+                // the UI the same way an edit to the primary root does.
+                let project_dirs = std::iter::once(adapter.project_relative_skills_dir())
+                    .chain(
+                        adapter
+                            .project_additional_scan_dirs
+                            .iter()
+                            .map(String::as_str),
+                    );
+                for project_dir in project_dirs {
+                    if project_dir.is_empty() {
+                        continue;
+                    }
+                    if !seen_dirs.insert(project_dir.to_string()) {
+                        continue;
+                    }
+                    let skills_dir = project_path.join(project_dir);
+                    let disabled_dir = project_path.join(format!("{}-disabled", project_dir));
                 // Only watch dirs that actually have skills inside. Watching the parent
                 // or empty leaf dirs would hold OS handles (Windows ReadDirectoryChangesW)
                 // and prevent users from deleting the agent-config folder (e.g. .codex)
                 // after they remove all skills from it. Newly-populated dirs are picked
                 // up by the polling rescan within WATCH_RESCAN_INTERVAL.
-                if dir_has_entries(&skills_dir) {
-                    paths.push(skills_dir);
-                }
-                if dir_has_entries(&disabled_dir) {
-                    paths.push(disabled_dir);
+                    if dir_has_entries(&skills_dir) {
+                        paths.push(skills_dir);
+                    }
+                    if dir_has_entries(&disabled_dir) {
+                        paths.push(disabled_dir);
+                    }
                 }
             }
         }

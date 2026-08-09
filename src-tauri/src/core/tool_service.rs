@@ -510,6 +510,84 @@ mod tests {
         let order = merge_order(&saved, &all);
         assert_eq!(order.last().unwrap(), "some_new_tool");
     }
+    fn codex_info(store: &SkillStore) -> ToolInfo {
+        list_tool_info(store)
+            .into_iter()
+            .find(|info| info.key == "codex")
+            .expect("codex tool info should exist")
+    }
+
+    #[test]
+    fn codex_tool_info_defaults_to_modern_paths() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+
+        let info = codex_info(&store);
+        assert_eq!(
+            info.skills_dir,
+            dirs::home_dir()
+                .unwrap()
+                .join(".agents/skills")
+                .to_string_lossy()
+        );
+        assert_eq!(
+            info.project_relative_skills_dir.as_deref(),
+            Some(".agents/skills")
+        );
+        assert!(!info.has_path_override);
+        assert!(!info.has_project_path_override);
+    }
+
+    #[test]
+    fn codex_overrides_flow_through_existing_settings_keys_and_reset_cleanly() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        let custom_global = tmp.path().join("custom-codex-skills");
+
+        set_custom_tool_paths(
+            &store,
+            &HashMap::from([(
+                "codex".to_string(),
+                custom_global.to_string_lossy().into_owned(),
+            )]),
+        )
+        .unwrap();
+        set_custom_tool_project_paths(
+            &store,
+            &HashMap::from([("codex".to_string(), ".custom/codex-skills".to_string())]),
+        )
+        .unwrap();
+
+        let info = codex_info(&store);
+        assert_eq!(info.skills_dir, custom_global.to_string_lossy());
+        assert_eq!(
+            info.project_relative_skills_dir.as_deref(),
+            Some(".custom/codex-skills")
+        );
+        assert!(info.has_path_override);
+        assert!(info.has_project_path_override);
+
+        // Clearing both overrides restores the modern defaults without any
+        // migration step — the defaults live in the adapter, not in settings.
+        set_custom_tool_paths(&store, &HashMap::new()).unwrap();
+        set_custom_tool_project_paths(&store, &HashMap::new()).unwrap();
+
+        let info = codex_info(&store);
+        assert_eq!(
+            info.skills_dir,
+            dirs::home_dir()
+                .unwrap()
+                .join(".agents/skills")
+                .to_string_lossy()
+        );
+        assert_eq!(
+            info.project_relative_skills_dir.as_deref(),
+            Some(".agents/skills")
+        );
+        assert!(!info.has_path_override);
+        assert!(!info.has_project_path_override);
+    }
+
     #[test]
     fn migrates_custom_omp_agent_to_builtin_overrides() {
         let tmp = tempdir().unwrap();

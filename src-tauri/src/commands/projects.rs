@@ -50,28 +50,55 @@ pub struct ProjectAgentTargetDto {
     pub is_custom: bool,
 }
 
+struct GroupedAgentDir {
+    relative_skills_dir: String,
+    agents: Vec<(String, String)>,
+    /// Discovery-only fallbacks contributed by any agent in this group.
+    additional_relative_skills_dirs: Vec<String>,
+}
+
 fn agent_skill_configs(store: &SkillStore) -> Vec<project_scanner::AgentSkillConfig> {
-    let mut grouped: Vec<(String, Vec<(String, String)>)> = Vec::new();
+    let mut grouped: Vec<GroupedAgentDir> = Vec::new();
     for adapter in tool_adapters::all_tool_adapters(store) {
         let project_dir = adapter.project_relative_skills_dir().to_string();
         if project_dir.is_empty() {
             continue;
         }
-        if let Some((_, agents)) = grouped.iter_mut().find(|(dir, _)| *dir == project_dir) {
-            agents.push((adapter.key, adapter.display_name));
-        } else {
-            grouped.push((project_dir, vec![(adapter.key, adapter.display_name)]));
+        let group = match grouped
+            .iter_mut()
+            .find(|group| group.relative_skills_dir == project_dir)
+        {
+            Some(group) => group,
+            None => {
+                grouped.push(GroupedAgentDir {
+                    relative_skills_dir: project_dir,
+                    agents: Vec::new(),
+                    additional_relative_skills_dirs: Vec::new(),
+                });
+                grouped.last_mut().expect("just pushed")
+            }
+        };
+        group.agents.push((adapter.key, adapter.display_name));
+        for extra in adapter.project_additional_scan_dirs {
+            // A fallback that is already the group's write target adds nothing.
+            if extra == group.relative_skills_dir
+                || group.additional_relative_skills_dirs.contains(&extra)
+            {
+                continue;
+            }
+            group.additional_relative_skills_dirs.push(extra);
         }
     }
 
     grouped
         .into_iter()
-        .filter_map(|(relative_skills_dir, agents)| {
-            let (key, first_display_name) = agents.first()?.clone();
-            let display_name = if agents.len() == 1 {
+        .filter_map(|group| {
+            let (key, first_display_name) = group.agents.first()?.clone();
+            let display_name = if group.agents.len() == 1 {
                 first_display_name
             } else {
-                agents
+                group
+                    .agents
                     .into_iter()
                     .map(|(_, display_name)| display_name)
                     .collect::<Vec<_>>()
@@ -80,7 +107,8 @@ fn agent_skill_configs(store: &SkillStore) -> Vec<project_scanner::AgentSkillCon
             Some(project_scanner::AgentSkillConfig {
                 key,
                 display_name,
-                relative_skills_dir,
+                relative_skills_dir: group.relative_skills_dir,
+                additional_relative_skills_dirs: group.additional_relative_skills_dirs,
             })
         })
         .collect()
@@ -1143,15 +1171,123 @@ pub async fn delete_project_skill(
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_sync_status, ensure_distinct_linked_workspace_roots,
-        remove_workspace_skill_target, set_project_skill_enabled_state,
+        agent_skill_configs, classify_sync_status, ensure_distinct_linked_workspace_roots,
+        remove_workspace_skill_target, resolve_agent_skills_roots, set_project_skill_enabled_state,
     };
     use crate::core::content_hash;
     use crate::core::error::ErrorKind;
     use crate::core::project_scanner::ProjectSkillInfo;
-    use crate::core::skill_store::SkillRecord;
+    use crate::core::skill_store::{ProjectRecord, SkillRecord, SkillStore};
     use std::fs;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
+
+    fn sample_project_record(path: &Path) -> ProjectRecord {
+        ProjectRecord {
+            id: "project-1".to_string(),
+            name: "demo".to_string(),
+            path: path.to_string_lossy().to_string(),
+            workspace_type: "project".to_string(),
+            linked_agent_key: None,
+            linked_agent_name: None,
+            disabled_path: None,
+            sort_order: 0,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn codex_project_config_reads_the_legacy_root_but_never_writes_to_it() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+
+        let configs = agent_skill_configs(&store);
+        let codex = configs
+            .iter()
+            .find(|config| config.key == "codex")
+            .expect("codex project config should exist");
+
+        assert_eq!(codex.relative_skills_dir, ".agents/skills");
+        assert_eq!(
+            codex.additional_relative_skills_dirs,
+            vec![".codex/skills".to_string()]
+        );
+        // No agent deploys to the legacy root anymore.
+        assert!(configs
+            .iter()
+            .all(|config| config.relative_skills_dir != ".codex/skills"));
+    }
+
+    #[test]
+    fn resolve_agent_skills_roots_targets_only_the_modern_codex_root() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        let project = tmp.path().join("demo");
+        let rec = sample_project_record(&project);
+
+        let (skills_root, disabled_root) =
+            resolve_agent_skills_roots(&store, &rec, "codex").expect("codex roots");
+
+        assert_eq!(skills_root, project.join(".agents/skills"));
+        assert_eq!(
+            disabled_root,
+            Some(PathBuf::from(project.join(".agents/skills-disabled")))
+        );
+    }
+
+    #[test]
+    fn codex_project_override_moves_the_write_target_and_keeps_legacy_discovery() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        store
+            .set_setting(
+                "custom_tool_project_paths",
+                &serde_json::json!({ "codex": ".custom/codex-skills" }).to_string(),
+            )
+            .unwrap();
+        let project = tmp.path().join("demo");
+        let rec = sample_project_record(&project);
+
+        let (skills_root, _) =
+            resolve_agent_skills_roots(&store, &rec, "codex").expect("codex roots");
+        assert_eq!(skills_root, project.join(".custom/codex-skills"));
+
+        let configs = agent_skill_configs(&store);
+        let codex = configs
+            .iter()
+            .find(|config| config.key == "codex")
+            .expect("codex project config should exist");
+        assert_eq!(codex.relative_skills_dir, ".custom/codex-skills");
+        assert_eq!(
+            codex.additional_relative_skills_dirs,
+            vec![".codex/skills".to_string()]
+        );
+    }
+
+    #[test]
+    fn disabled_agents_keep_their_own_project_roots() {
+        // Disabling an agent is a display concern; it must not reroute another
+        // agent's paths. Claude Code stands in for "every non-Codex adapter".
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        store
+            .set_setting("disabled_tools", &serde_json::json!(["codex"]).to_string())
+            .unwrap();
+        let project = tmp.path().join("demo");
+        let rec = sample_project_record(&project);
+
+        let (claude_root, _) =
+            resolve_agent_skills_roots(&store, &rec, "claude_code").expect("claude roots");
+        assert_eq!(claude_root, project.join(".claude/skills"));
+
+        let configs = agent_skill_configs(&store);
+        let claude = configs
+            .iter()
+            .find(|config| config.key == "claude_code")
+            .expect("claude_code project config should exist");
+        assert!(claude.additional_relative_skills_dirs.is_empty());
+    }
 
     fn sample_managed_skill(
         central_path: String,

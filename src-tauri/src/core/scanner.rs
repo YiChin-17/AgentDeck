@@ -116,6 +116,13 @@ fn push_discovered(
     });
 }
 
+/// Identity of a scan root for de-duplication. Falls back to the literal path
+/// when the directory cannot be resolved (missing or unreadable), which keeps
+/// unresolvable roots distinct instead of collapsing them onto each other.
+fn canonical_root(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn scan_flat_dir(
     adapter_key: &str,
     scan_dir: &Path,
@@ -179,9 +186,17 @@ pub fn scan_local_skills_with_adapters(
 
         tools_scanned += 1;
 
+        // An adapter's roots can alias one another — an override pointing at the
+        // legacy root, or a symlink between them — and scanning the same
+        // directory twice would report every skill in it twice. Compare by
+        // canonical path so aliases collapse; the first root in precedence order
+        // (override/primary, then legacy) is the one that gets traversed.
+        let mut scanned_roots: HashSet<PathBuf> = HashSet::new();
+
         if installed {
             let primary_scan_dir = adapter.skills_dir();
-            if primary_scan_dir.exists() {
+            if primary_scan_dir.exists() && scanned_roots.insert(canonical_root(&primary_scan_dir))
+            {
                 if adapter.recursive_scan {
                     scan_recursive_dir(
                         &adapter.key,
@@ -202,6 +217,9 @@ pub fn scan_local_skills_with_adapters(
 
         // Additional scan dirs are already resolved to concrete skills roots.
         for scan_dir in additional_dirs {
+            if !scanned_roots.insert(canonical_root(&scan_dir)) {
+                continue;
+            }
             scan_flat_dir(&adapter.key, &scan_dir, managed_paths, &mut discovered);
         }
     }
@@ -360,6 +378,7 @@ mod tests {
             relative_skills_dir: String::new(),
             relative_detect_dir: String::new(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: Some(tmp.path().to_string_lossy().to_string()),
             is_custom: true,
             recursive_scan: false,
@@ -389,6 +408,7 @@ mod tests {
             relative_skills_dir: String::new(),
             relative_detect_dir: String::new(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: Some(primary.to_string_lossy().to_string()),
             is_custom: true,
             recursive_scan: false,
@@ -407,6 +427,188 @@ mod tests {
             plan.discovered[0].found_path,
             plugin_skills.join("packaged-skill").to_string_lossy()
         );
+    }
+
+    /// Codex-shaped adapter: a modern primary root plus a discovery-only legacy
+    /// root, both given as absolute paths so the test never touches `$HOME`.
+    fn two_root_adapter(primary: &Path, legacy: &Path) -> tool_adapters::ToolAdapter {
+        tool_adapters::ToolAdapter {
+            key: "codex".into(),
+            display_name: "Codex".into(),
+            relative_skills_dir: String::new(),
+            relative_detect_dir: String::new(),
+            additional_scan_dirs: vec![legacy.to_string_lossy().to_string()],
+            project_additional_scan_dirs: vec![],
+            override_skills_dir: Some(primary.to_string_lossy().to_string()),
+            is_custom: true,
+            recursive_scan: false,
+            project_relative_skills_dir: None,
+            category: Default::default(),
+        }
+    }
+
+    fn found_paths(plan: &ScanPlan) -> Vec<String> {
+        let mut paths: Vec<String> = plan
+            .discovered
+            .iter()
+            .map(|rec| rec.found_path.clone())
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn scans_modern_root_when_legacy_root_is_absent() {
+        let tmp = tempdir().unwrap();
+        let primary = tmp.path().join("agents-skills");
+        let legacy = tmp.path().join("codex-skills");
+        write_skill(&primary.join("modern-tool"));
+
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&primary, &legacy)]).unwrap();
+
+        assert_eq!(
+            found_paths(&plan),
+            vec![primary.join("modern-tool").to_string_lossy().to_string()]
+        );
+        // Discovery is read-only: a missing legacy root is not created.
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn scans_legacy_root_when_modern_root_is_absent() {
+        let tmp = tempdir().unwrap();
+        let primary = tmp.path().join("agents-skills");
+        let legacy = tmp.path().join("codex-skills");
+        write_skill(&legacy.join("legacy-tool"));
+
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&primary, &legacy)]).unwrap();
+
+        assert_eq!(
+            found_paths(&plan),
+            vec![legacy.join("legacy-tool").to_string_lossy().to_string()]
+        );
+        // The legacy skill stays exactly where it was — nothing is migrated.
+        assert!(legacy.join("legacy-tool").join("SKILL.md").is_file());
+        assert!(!primary.exists());
+    }
+
+    #[test]
+    fn scans_both_roots_and_reports_each_source_path() {
+        let tmp = tempdir().unwrap();
+        let primary = tmp.path().join("agents-skills");
+        let legacy = tmp.path().join("codex-skills");
+        write_skill(&primary.join("modern-tool"));
+        write_skill(&legacy.join("legacy-tool"));
+
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&primary, &legacy)]).unwrap();
+
+        let mut expected = vec![
+            primary.join("modern-tool").to_string_lossy().to_string(),
+            legacy.join("legacy-tool").to_string_lossy().to_string(),
+        ];
+        expected.sort();
+        assert_eq!(found_paths(&plan), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn aliased_roots_are_scanned_once() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().unwrap();
+        let primary = tmp.path().join("agents-skills");
+        let legacy = tmp.path().join("codex-skills");
+        write_skill(&primary.join("shared-tool"));
+        // `.codex/skills` is a symlink to `.agents/skills`: one physical dir,
+        // two roots.
+        symlink(&primary, &legacy).unwrap();
+
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&primary, &legacy)]).unwrap();
+
+        assert_eq!(plan.skills_found, 1);
+        assert_eq!(
+            plan.discovered[0].found_path,
+            primary.join("shared-tool").to_string_lossy()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn override_pointing_at_the_legacy_root_is_scanned_once() {
+        let tmp = tempdir().unwrap();
+        let legacy = tmp.path().join("codex-skills");
+        write_skill(&legacy.join("legacy-tool"));
+
+        // Global override set to the legacy root itself: primary and additional
+        // root are literally the same directory.
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&legacy, &legacy)]).unwrap();
+
+        assert_eq!(plan.skills_found, 1);
+        assert_eq!(
+            plan.discovered[0].found_path,
+            legacy.join("legacy-tool").to_string_lossy()
+        );
+    }
+
+    fn write_skill_with_body(dir: &Path, body: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("SKILL.md"), body).unwrap();
+    }
+
+    #[test]
+    fn identical_copies_in_both_roots_group_into_one_result_keeping_both_locations() {
+        let tmp = tempdir().unwrap();
+        let primary = tmp.path().join("agents-skills");
+        let legacy = tmp.path().join("codex-skills");
+        write_skill_with_body(&primary.join("shared-tool"), "---\nname: shared-tool\n---\n");
+        write_skill_with_body(&legacy.join("shared-tool"), "---\nname: shared-tool\n---\n");
+
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&primary, &legacy)]).unwrap();
+        let groups = group_discovered(&plan.discovered);
+
+        assert_eq!(groups.len(), 1);
+        let mut locations: Vec<String> = groups[0]
+            .locations
+            .iter()
+            .map(|location| location.found_path.clone())
+            .collect();
+        locations.sort();
+        let mut expected = vec![
+            primary.join("shared-tool").to_string_lossy().to_string(),
+            legacy.join("shared-tool").to_string_lossy().to_string(),
+        ];
+        expected.sort();
+        assert_eq!(locations, expected);
+    }
+
+    #[test]
+    fn conflicting_copies_in_both_roots_stay_separate_groups() {
+        let tmp = tempdir().unwrap();
+        let primary = tmp.path().join("agents-skills");
+        let legacy = tmp.path().join("codex-skills");
+        write_skill_with_body(
+            &primary.join("shared-tool"),
+            "---\nname: shared-tool\n---\nmodern",
+        );
+        write_skill_with_body(
+            &legacy.join("shared-tool"),
+            "---\nname: shared-tool\n---\nlegacy",
+        );
+
+        let plan =
+            scan_local_skills_with_adapters(&[], &[two_root_adapter(&primary, &legacy)]).unwrap();
+        let groups = group_discovered(&plan.discovered);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups
+            .iter()
+            .all(|group| group.locations.len() == 1 && group.name == "shared-tool"));
     }
 
     #[test]

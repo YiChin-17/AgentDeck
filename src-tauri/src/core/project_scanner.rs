@@ -9,7 +9,13 @@ pub struct AgentSkillConfig {
     pub key: String,
     pub display_name: String,
     /// Relative path from project root to the skills directory (e.g. ".claude/skills").
+    /// This is the only write target: deployment, enable/disable and delete all
+    /// resolve against it.
     pub relative_skills_dir: String,
+    /// Extra relative paths that are read but never written — legacy locations
+    /// an agent used to deploy to, kept visible so existing skills don't vanish
+    /// when the default moves.
+    pub additional_relative_skills_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,29 +56,72 @@ pub fn read_project_skills(
     let mut skills = Vec::new();
 
     for config in agent_configs {
-        let skills_dir = project_path.join(&config.relative_skills_dir);
-        let disabled_dir = project_path.join(format!("{}-disabled", &config.relative_skills_dir));
+        // Primary first, then the read-only fallbacks: that order is the
+        // precedence used when the same skill turns up in more than one root.
+        // Roots that resolve to the same directory (a symlinked legacy path, an
+        // override pointing back at it) are visited once.
+        let mut visited_roots = std::collections::HashSet::new();
+        let roots = std::iter::once(&config.relative_skills_dir)
+            .chain(config.additional_relative_skills_dirs.iter());
 
-        read_skills_from_dir(
-            &skills_dir,
-            true,
-            &config.key,
-            &config.display_name,
-            &mut skills,
-            true,
-        );
-        read_skills_from_dir(
-            &disabled_dir,
-            false,
-            &config.key,
-            &config.display_name,
-            &mut skills,
-            true,
-        );
+        for relative in roots {
+            let skills_dir = project_path.join(relative);
+            let disabled_dir = project_path.join(format!("{relative}-disabled"));
+
+            if visited_roots.insert(canonical_root(&skills_dir)) {
+                read_skills_from_dir(
+                    &skills_dir,
+                    true,
+                    &config.key,
+                    &config.display_name,
+                    &mut skills,
+                    true,
+                );
+            }
+            if visited_roots.insert(canonical_root(&disabled_dir)) {
+                read_skills_from_dir(
+                    &disabled_dir,
+                    false,
+                    &config.key,
+                    &config.display_name,
+                    &mut skills,
+                    true,
+                );
+            }
+        }
     }
 
+    dedupe_equivalent_skills(&mut skills);
     skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     skills
+}
+
+/// Drop a result when a byte-identical copy was already found in a
+/// higher-precedence root of the same agent, keeping the higher-precedence one.
+///
+/// Identity is agent + normalized name + enabled state + content hash. The hash
+/// is what makes this safe: two roots holding the *same* skill are one skill to
+/// the user, but two roots holding different content under one name is a real
+/// conflict, and silently keeping only the winner would hide it. The enabled
+/// state is part of the identity for the same reason — a skill that is enabled
+/// in one root and disabled in another is not one result.
+fn dedupe_equivalent_skills(skills: &mut Vec<ProjectSkillInfo>) {
+    let mut seen = std::collections::HashSet::new();
+    skills.retain(|skill| {
+        seen.insert((
+            skill.agent.clone(),
+            skill.name.to_lowercase(),
+            skill.enabled,
+            skill.content_hash.clone(),
+        ))
+    });
+}
+
+/// Identity of a scan root for de-duplication. Falls back to the literal path
+/// when the directory cannot be resolved (missing or unreadable), so
+/// unresolvable roots stay distinct instead of collapsing onto each other.
+fn canonical_root(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn read_linked_workspace_skills(
@@ -254,9 +303,13 @@ pub fn scan_projects_in_dir(
 }
 
 fn has_any_agent_skills(dir: &Path, agent_configs: &[AgentSkillConfig]) -> bool {
-    agent_configs
-        .iter()
-        .any(|config| dir.join(&config.relative_skills_dir).is_dir())
+    agent_configs.iter().any(|config| {
+        dir.join(&config.relative_skills_dir).is_dir()
+            || config
+                .additional_relative_skills_dirs
+                .iter()
+                .any(|relative| dir.join(relative).is_dir())
+    })
 }
 
 fn scan_recursive(
@@ -317,9 +370,261 @@ fn list_files(dir: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_linked_workspace_skills, read_project_skills, AgentSkillConfig};
+    use super::{
+        read_linked_workspace_skills, read_project_skills, scan_projects_in_dir, AgentSkillConfig,
+    };
     use std::fs;
+    use std::path::Path;
     use tempfile::tempdir;
+
+    fn write_skill(dir: &Path, name: &str, body: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\n---\n{body}"),
+        )
+        .unwrap();
+    }
+
+    /// Codex-shaped config: modern primary plus the discovery-only legacy root.
+    fn codex_config(primary: &str) -> AgentSkillConfig {
+        AgentSkillConfig {
+            key: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            relative_skills_dir: primary.to_string(),
+            additional_relative_skills_dirs: vec![".codex/skills".to_string()],
+        }
+    }
+
+    fn names(skills: &[super::ProjectSkillInfo]) -> Vec<&str> {
+        skills.iter().map(|skill| skill.name.as_str()).collect()
+    }
+
+    #[test]
+    fn reads_both_modern_and_legacy_project_roots() {
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".agents/skills/modern-tool"),
+            "modern-tool",
+            "modern",
+        );
+        write_skill(
+            &tmp.path().join(".codex/skills/legacy-tool"),
+            "legacy-tool",
+            "legacy",
+        );
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".agents/skills")]);
+
+        assert_eq!(names(&skills), vec!["legacy-tool", "modern-tool"]);
+        // Each result carries the root it was actually found in.
+        let legacy = skills.iter().find(|s| s.name == "legacy-tool").unwrap();
+        assert_eq!(
+            legacy.path,
+            tmp.path()
+                .join(".codex/skills/legacy-tool")
+                .to_string_lossy()
+        );
+        assert_eq!(legacy.agent, "codex");
+    }
+
+    #[test]
+    fn reads_disabled_skills_from_the_legacy_root() {
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".codex/skills-disabled/parked-tool"),
+            "parked-tool",
+            "parked",
+        );
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".agents/skills")]);
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "parked-tool");
+        assert!(!skills[0].enabled);
+    }
+
+    #[test]
+    fn project_override_replaces_the_primary_but_keeps_legacy_discovery() {
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".custom/codex-skills/custom-tool"),
+            "custom-tool",
+            "custom",
+        );
+        write_skill(
+            &tmp.path().join(".codex/skills/legacy-tool"),
+            "legacy-tool",
+            "legacy",
+        );
+        // The old default is not the write target anymore, so nothing lives there.
+        write_skill(
+            &tmp.path().join(".agents/skills/unreachable-tool"),
+            "unreachable-tool",
+            "unreachable",
+        );
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".custom/codex-skills")]);
+
+        assert_eq!(names(&skills), vec!["custom-tool", "legacy-tool"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn aliased_project_roots_are_read_once() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".agents/skills/shared-tool"),
+            "shared-tool",
+            "shared",
+        );
+        fs::create_dir_all(tmp.path().join(".codex")).unwrap();
+        symlink(
+            tmp.path().join(".agents/skills"),
+            tmp.path().join(".codex/skills"),
+        )
+        .unwrap();
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".agents/skills")]);
+
+        assert_eq!(names(&skills), vec!["shared-tool"]);
+    }
+
+    #[test]
+    fn identical_copies_in_both_roots_produce_one_result_from_the_primary() {
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".agents/skills/shared-tool"),
+            "shared-tool",
+            "same body",
+        );
+        write_skill(
+            &tmp.path().join(".codex/skills/shared-tool"),
+            "shared-tool",
+            "same body",
+        );
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".agents/skills")]);
+
+        assert_eq!(skills.len(), 1);
+        // Precedence: the deployment primary wins, so that is the path shown.
+        assert_eq!(
+            skills[0].path,
+            tmp.path()
+                .join(".agents/skills/shared-tool")
+                .to_string_lossy()
+        );
+        // Nothing was removed from disk — the legacy copy is still there.
+        assert!(tmp
+            .path()
+            .join(".codex/skills/shared-tool/SKILL.md")
+            .is_file());
+    }
+
+    #[test]
+    fn conflicting_copies_in_both_roots_stay_visible() {
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".agents/skills/shared-tool"),
+            "shared-tool",
+            "modern body",
+        );
+        write_skill(
+            &tmp.path().join(".codex/skills/shared-tool"),
+            "shared-tool",
+            "legacy body",
+        );
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".agents/skills")]);
+
+        assert_eq!(skills.len(), 2);
+        let mut paths: Vec<&str> = skills.iter().map(|skill| skill.path.as_str()).collect();
+        paths.sort();
+        let mut expected = vec![
+            tmp.path()
+                .join(".agents/skills/shared-tool")
+                .to_string_lossy()
+                .to_string(),
+            tmp.path()
+                .join(".codex/skills/shared-tool")
+                .to_string_lossy()
+                .to_string(),
+        ];
+        expected.sort();
+        assert_eq!(paths, expected);
+    }
+
+    #[test]
+    fn an_enabled_and_a_disabled_copy_are_not_merged() {
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".agents/skills/shared-tool"),
+            "shared-tool",
+            "same body",
+        );
+        write_skill(
+            &tmp.path().join(".codex/skills-disabled/shared-tool"),
+            "shared-tool",
+            "same body",
+        );
+
+        let skills = read_project_skills(tmp.path(), &[codex_config(".agents/skills")]);
+
+        assert_eq!(skills.len(), 2);
+        assert_eq!(skills.iter().filter(|skill| skill.enabled).count(), 1);
+        assert_eq!(skills.iter().filter(|skill| !skill.enabled).count(), 1);
+    }
+
+    #[test]
+    fn same_skill_under_two_agents_is_not_merged() {
+        // De-duplication is per agent: the same skill deployed for two agents
+        // must keep showing up once per agent.
+        let tmp = tempdir().unwrap();
+        write_skill(
+            &tmp.path().join(".agents/skills/shared-tool"),
+            "shared-tool",
+            "same body",
+        );
+        write_skill(
+            &tmp.path().join(".claude/skills/shared-tool"),
+            "shared-tool",
+            "same body",
+        );
+
+        let configs = vec![
+            codex_config(".agents/skills"),
+            AgentSkillConfig {
+                key: "claude_code".to_string(),
+                display_name: "Claude Code".to_string(),
+                relative_skills_dir: ".claude/skills".to_string(),
+                additional_relative_skills_dirs: Vec::new(),
+            },
+        ];
+
+        let skills = read_project_skills(tmp.path(), &configs);
+
+        assert_eq!(skills.len(), 2);
+        let mut agents: Vec<&str> = skills.iter().map(|skill| skill.agent.as_str()).collect();
+        agents.sort();
+        assert_eq!(agents, vec!["claude_code", "codex"]);
+    }
+
+    #[test]
+    fn project_scan_detects_a_workspace_that_only_has_the_legacy_root() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("demo");
+        write_skill(
+            &project.join(".codex/skills/legacy-tool"),
+            "legacy-tool",
+            "legacy",
+        );
+
+        let found = scan_projects_in_dir(tmp.path(), 2, &[codex_config(".agents/skills")]);
+
+        assert_eq!(found, vec![project.to_string_lossy().to_string()]);
+    }
 
     #[test]
     fn reads_nested_project_skills_recursively() {
@@ -337,6 +642,7 @@ mod tests {
             key: "hermes".to_string(),
             display_name: "Hermes".to_string(),
             relative_skills_dir: ".hermes/skills".to_string(),
+            additional_relative_skills_dirs: Vec::new(),
         }];
 
         let skills = read_project_skills(tmp.path(), &configs);
@@ -360,6 +666,7 @@ mod tests {
             key: "hermes".to_string(),
             display_name: "Hermes".to_string(),
             relative_skills_dir: ".hermes/skills".to_string(),
+            additional_relative_skills_dirs: Vec::new(),
         }];
 
         let skills = read_project_skills(tmp.path(), &configs);

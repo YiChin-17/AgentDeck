@@ -20,10 +20,17 @@ pub struct ToolAdapter {
     pub display_name: String,
     pub relative_skills_dir: String,
     pub relative_detect_dir: String,
-    /// Additional directories to scan for skills (e.g. plugin/marketplace dirs).
+    /// Additional home-relative directories to scan for skills (e.g.
+    /// plugin/marketplace dirs, or a legacy location the tool still reads).
     /// These are only used for discovery, not for deployment.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub additional_scan_dirs: Vec<String>,
+    /// Additional project-relative directories to scan for skills. Same
+    /// discovery-only contract as [`Self::additional_scan_dirs`], but applied
+    /// to workspace scans: deployment, enable/disable and delete always target
+    /// the project primary path, never one of these roots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub project_additional_scan_dirs: Vec<String>,
     /// When set, overrides the computed skills_dir with this absolute path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub override_skills_dir: Option<String>,
@@ -152,6 +159,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".cursor/skills".into(),
             relative_detect_dir: ".cursor".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -164,6 +172,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".claude/skills".into(),
             relative_detect_dir: ".claude".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -181,6 +190,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".omp/agent/skills".into(),
             relative_detect_dir: ".omp/agent".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -188,22 +198,18 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             project_relative_skills_dir: Some(".omp/skills".into()),
         },
         ToolAdapter {
-            // Codex CLI reads user-level skills from `~/.codex/skills/` and
-            // project-level skills from `<repo>/.codex/skills/`. The shared
-            // `~/.agents/skills` location is kept as a discovery fallback so
-            // skills synced there by other adapters (or by older skills-manager
-            // versions that deployed Codex there by mistake) still surface in
-            // the Codex tab.
-            //
-            // Note: `AGENT_SKILLS_PATH` (openai/codex#13074) is a proposed
-            // env var that would let Codex load from `<custom>/.agents/skills`;
-            // until it ships, `.codex/skills` is the only path Codex CLI
-            // actually reads.
+            // `.agents/skills` is the product's chosen Codex deployment default
+            // at both global and project scope, deliberately ahead of Codex
+            // CLI's own `.codex/skills` (see `AGENT_SKILLS_PATH`,
+            // openai/codex#13074). `.codex/skills` stays a discovery-only root
+            // in both scopes so Skills already deployed there — by an older
+            // AgentDeck or by hand — remain visible without being moved.
             key: "codex".into(),
             display_name: "Codex".into(),
-            relative_skills_dir: ".codex/skills".into(),
+            relative_skills_dir: ".agents/skills".into(),
             relative_detect_dir: ".codex".into(),
-            additional_scan_dirs: vec![".agents/skills".into()],
+            additional_scan_dirs: vec![".codex/skills".into()],
+            project_additional_scan_dirs: vec![".codex/skills".into()],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -219,6 +225,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".grok/skills".into(),
             relative_detect_dir: ".grok".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -231,6 +238,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/opencode/skills".into(),
             relative_detect_dir: ".config/opencode".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -243,6 +251,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".gemini/antigravity/skills".into(),
             relative_detect_dir: ".gemini/antigravity".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -255,6 +264,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/agents/skills".into(),
             relative_detect_dir: ".config/agents".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -267,6 +277,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".kilocode/skills".into(),
             relative_detect_dir: ".kilocode".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -279,6 +290,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".roo/skills".into(),
             relative_detect_dir: ".roo".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -291,6 +303,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/goose/skills".into(),
             relative_detect_dir: ".config/goose".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -303,6 +316,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".gemini/skills".into(),
             relative_detect_dir: ".gemini".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -316,6 +330,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_detect_dir: ".copilot".into(),
             // GitHub Copilot now reads skills from the unified `~/.agents/skills` location too.
             additional_scan_dirs: vec![".agents/skills".into()],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -328,6 +343,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".openclaw/skills".into(),
             relative_detect_dir: ".openclaw".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Lobster,
             is_custom: false,
@@ -340,6 +356,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".factory/skills".into(),
             relative_detect_dir: ".factory".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -352,6 +369,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".codeium/windsurf/skills".into(),
             relative_detect_dir: ".codeium/windsurf".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -364,6 +382,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".trae/skills".into(),
             relative_detect_dir: ".trae".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -376,6 +395,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".agents/skills".into(),
             relative_detect_dir: ".cline".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -388,6 +408,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".deepagents/agent/skills".into(),
             relative_detect_dir: ".deepagents".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -400,6 +421,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".firebender/skills".into(),
             relative_detect_dir: ".firebender".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -412,6 +434,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/agents/skills".into(),
             relative_detect_dir: ".kimi".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -424,6 +447,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/agents/skills".into(),
             relative_detect_dir: ".replit".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -436,6 +460,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".agents/skills".into(),
             relative_detect_dir: ".warp".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -448,6 +473,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".augment/skills".into(),
             relative_detect_dir: ".augment".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -460,6 +486,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".bob/skills".into(),
             relative_detect_dir: ".bob".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -472,6 +499,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".codebuddy/skills".into(),
             relative_detect_dir: ".codebuddy".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -484,6 +512,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".commandcode/skills".into(),
             relative_detect_dir: ".commandcode".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -496,6 +525,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".continue/skills".into(),
             relative_detect_dir: ".continue".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -508,6 +538,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".snowflake/cortex/skills".into(),
             relative_detect_dir: ".snowflake/cortex".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -520,6 +551,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/crush/skills".into(),
             relative_detect_dir: ".config/crush".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -532,6 +564,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".iflow/skills".into(),
             relative_detect_dir: ".iflow".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -544,6 +577,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".junie/skills".into(),
             relative_detect_dir: ".junie".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -556,6 +590,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".kiro/skills".into(),
             relative_detect_dir: ".kiro".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -568,6 +603,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".kode/skills".into(),
             relative_detect_dir: ".kode".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -580,6 +616,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".mcpjam/skills".into(),
             relative_detect_dir: ".mcpjam".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -592,6 +629,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".vibe/skills".into(),
             relative_detect_dir: ".vibe".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -604,6 +642,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".mux/skills".into(),
             relative_detect_dir: ".mux".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -616,6 +655,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".neovate/skills".into(),
             relative_detect_dir: ".neovate".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -628,6 +668,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".openhands/skills".into(),
             relative_detect_dir: ".openhands".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -646,6 +687,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".pi/agent/skills".into(),
             relative_detect_dir: ".pi/agent".into(),
             additional_scan_dirs: vec![".agents/skills".into()],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -658,6 +700,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".pochi/skills".into(),
             relative_detect_dir: ".pochi".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -670,6 +713,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".qoder/skills".into(),
             relative_detect_dir: ".qoder".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -682,6 +726,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".qwen/skills".into(),
             relative_detect_dir: ".qwen".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -694,6 +739,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".trae-cn/skills".into(),
             relative_detect_dir: ".trae-cn".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -706,6 +752,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".zencoder/skills".into(),
             relative_detect_dir: ".zencoder".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -718,6 +765,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".adal/skills".into(),
             relative_detect_dir: ".adal".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Coding,
             is_custom: false,
@@ -730,6 +778,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".hermes/skills".into(),
             relative_detect_dir: ".hermes".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Lobster,
             is_custom: false,
@@ -742,6 +791,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".qclaw/skills".into(),
             relative_detect_dir: ".qclaw".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Lobster,
             is_custom: false,
@@ -754,6 +804,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".easyclaw/skills".into(),
             relative_detect_dir: ".easyclaw".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Lobster,
             is_custom: false,
@@ -766,6 +817,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".openclaw-autoclaw/skills".into(),
             relative_detect_dir: ".openclaw-autoclaw".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Lobster,
             is_custom: false,
@@ -784,6 +836,7 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".workbuddy/skills".into(),
             relative_detect_dir: ".workbuddy".into(),
             additional_scan_dirs: vec![],
+            project_additional_scan_dirs: vec![],
             override_skills_dir: None,
             category: ToolCategory::Lobster,
             is_custom: false,
@@ -848,6 +901,7 @@ fn custom_tool_adapter(ct: CustomToolDef) -> ToolAdapter {
         relative_skills_dir: ct.project_relative_skills_dir.unwrap_or_default(),
         relative_detect_dir: String::new(),
         additional_scan_dirs: vec![],
+        project_additional_scan_dirs: vec![],
         override_skills_dir: Some(ct.skills_dir),
         category: ct.category,
         is_custom: true,
@@ -1030,6 +1084,144 @@ mod tests {
         assert_eq!(found.relative_skills_dir, ".omp/agent/skills");
         assert_eq!(found.relative_detect_dir, ".omp/agent");
         assert_eq!(found.project_relative_skills_dir(), ".omp/skills");
+    }
+
+    fn codex_adapter() -> super::ToolAdapter {
+        default_tool_adapters()
+            .into_iter()
+            .find(|adapter| adapter.key == "codex")
+            .expect("codex adapter should exist")
+    }
+
+    #[test]
+    fn codex_deploys_to_modern_paths_and_only_discovers_legacy_ones() {
+        let adapter = codex_adapter();
+
+        // Deployment primaries (global + project).
+        assert_eq!(adapter.relative_skills_dir, ".agents/skills");
+        assert_eq!(adapter.project_relative_skills_dir(), ".agents/skills");
+        // Discovery-only legacy roots (global + project).
+        assert_eq!(adapter.additional_scan_dirs, vec![".codex/skills".to_string()]);
+        assert_eq!(
+            adapter.project_additional_scan_dirs,
+            vec![".codex/skills".to_string()]
+        );
+        // Detection still keys off the vendor dir Codex CLI creates.
+        assert_eq!(adapter.relative_detect_dir, ".codex");
+    }
+
+    #[test]
+    fn codex_global_deployment_root_is_the_modern_default() {
+        let adapter = codex_adapter();
+        let home = dirs::home_dir().expect("home dir");
+
+        assert_eq!(adapter.skills_dir(), home.join(".agents/skills"));
+        // The legacy root is never the write target, only the first extra scan root.
+        assert_ne!(adapter.skills_dir(), home.join(".codex/skills"));
+        assert_eq!(adapter.all_scan_dirs()[0], adapter.skills_dir());
+    }
+
+    #[test]
+    fn codex_global_override_replaces_only_the_deployment_primary() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        let custom_root = tmp.path().join("custom").join("codex-skills");
+        store
+            .set_setting(
+                "custom_tool_paths",
+                &serde_json::json!({ "codex": custom_root.to_string_lossy() }).to_string(),
+            )
+            .unwrap();
+
+        let adapter = find_adapter_with_store(&store, "codex").unwrap();
+        assert_eq!(adapter.skills_dir(), custom_root);
+        assert!(adapter.has_path_override());
+        // Legacy discovery survives the override.
+        assert_eq!(adapter.additional_scan_dirs, vec![".codex/skills".to_string()]);
+        // Project deployment is untouched by the global override.
+        assert_eq!(adapter.project_relative_skills_dir(), ".agents/skills");
+    }
+
+    #[test]
+    fn codex_project_override_replaces_only_the_project_primary() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        store
+            .set_setting(
+                "custom_tool_project_paths",
+                &serde_json::json!({ "codex": ".custom/codex-skills" }).to_string(),
+            )
+            .unwrap();
+
+        let adapter = find_adapter_with_store(&store, "codex").unwrap();
+        assert_eq!(adapter.project_relative_skills_dir(), ".custom/codex-skills");
+        assert_eq!(
+            adapter.project_additional_scan_dirs,
+            vec![".codex/skills".to_string()]
+        );
+        // Global deployment is untouched by the project override.
+        assert_eq!(
+            adapter.skills_dir(),
+            dirs::home_dir().unwrap().join(".agents/skills")
+        );
+    }
+
+    #[test]
+    fn codex_override_pointing_at_the_legacy_root_stays_a_single_scan_root() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        let legacy = dirs::home_dir().unwrap().join(".codex/skills");
+        store
+            .set_setting(
+                "custom_tool_paths",
+                &serde_json::json!({ "codex": legacy.to_string_lossy() }).to_string(),
+            )
+            .unwrap();
+
+        let adapter = find_adapter_with_store(&store, "codex").unwrap();
+        assert_eq!(adapter.skills_dir(), legacy);
+        // `all_scan_dirs` folds the duplicate away; scanner.rs additionally
+        // dedupes by canonical path for aliased roots.
+        assert_eq!(
+            adapter.all_scan_dirs().iter().filter(|d| **d == legacy).count(),
+            1
+        );
+    }
+
+    #[test]
+    fn clearing_codex_overrides_restores_modern_defaults() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        store
+            .set_setting("custom_tool_paths", &serde_json::json!({}).to_string())
+            .unwrap();
+        store
+            .set_setting("custom_tool_project_paths", &serde_json::json!({}).to_string())
+            .unwrap();
+
+        let adapter = find_adapter_with_store(&store, "codex").unwrap();
+        assert_eq!(
+            adapter.skills_dir(),
+            dirs::home_dir().unwrap().join(".agents/skills")
+        );
+        assert_eq!(adapter.project_relative_skills_dir(), ".agents/skills");
+        assert!(!adapter.has_path_override());
+    }
+
+    #[test]
+    fn non_codex_adapters_declare_no_project_discovery_fallbacks() {
+        // Only Codex carries a legacy project root; every other adapter must keep
+        // project discovery pinned to its single project path.
+        for adapter in default_tool_adapters() {
+            if adapter.key == "codex" {
+                continue;
+            }
+            assert!(
+                adapter.project_additional_scan_dirs.is_empty(),
+                "{} unexpectedly declares project discovery fallbacks",
+                adapter.key
+            );
+        }
     }
 
     #[test]
