@@ -8,6 +8,12 @@
   One app to manage AI agent skills across all your coding tools.
 </p>
 
+## AgentDeck fork direction
+
+AgentDeck is a fork of [xingkongliang/skills-manager](https://github.com/xingkongliang/skills-manager) retained under the MIT License. The upstream baseline and verification evidence are recorded in [`BASELINE.md`](BASELINE.md).
+
+AgentDeck extends the upstream skill-management foundation to manage Codex and Claude Code Skills, Plugins, Hooks, and Config Profiles from one desktop app. macOS is the first target. Existing upstream cross-platform behavior remains protected unless a later specification explicitly changes that compatibility boundary.
+
 <p align="center">
   🎬 <a href="https://www.youtube.com/watch?v=wfbCrfNASVU">Video intro (YouTube)</a>
   &nbsp;·&nbsp;
