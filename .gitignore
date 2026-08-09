@@ -37,3 +37,6 @@ reference
 CLAUDE.md
 .loop-log
 
+# Spectra local state
+.spectra/
+openspec/.vector-search.db*

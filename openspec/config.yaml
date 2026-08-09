@@ -1,0 +1,47 @@
+schema: spec-driven
+
+context: |
+  AgentDeck is a macOS-first desktop GUI for centrally managing Codex and
+  Claude Code Skills, Plugins, Hooks, and Config Profiles.
+
+  The project is forked from xingkongliang/skills-manager and retains the
+  upstream Rust, Tauri 2, React, TypeScript, and SQLite architecture. Preserve
+  upstream cross-platform behavior unless a change explicitly requires a
+  macOS-only capability.
+
+  AgentDeck uses one central Library. Artifacts can be assigned per project or
+  globally to Codex, Claude, or both, and deployed by symlink, copy, or an
+  official CLI. Skill, Plugin, Hook, and ConfigProfile share an upper-level
+  Artifact concept but keep separate data models and deployment rules.
+
+  Codex defaults to .agents/skills while retaining discovery and de-duplication
+  support for legacy .codex/skills paths. Claude Code uses .claude/skills.
+  Official CLIs are preferred for Plugin installation, updates, removal, and
+  validation; AgentDeck must not modify official Plugin caches directly.
+
+  Configuration writes must preserve unknown JSON/TOML fields and TOML comments,
+  create a recoverable backup, and use a temporary file plus atomic replacement.
+  Never import tokens, login data, or other secrets into the Library or Git
+  backups. If an external Library is offline, report Library Offline and suspend
+  synchronization and deletion instead of treating missing files as deleted.
+
+  Every implementation phase must verify the React/TypeScript production build,
+  Rust tests, relevant database migrations, symlink/copy behavior in temporary
+  projects, configuration round trips, offline behavior, and affected GUI flows.
+
+rules:
+  proposal:
+    - State which plan.md phase the change belongs to.
+    - Preserve upstream compatibility and identify any intentional divergence.
+    - Include explicit non-goals for behavior outside the selected phase.
+    - List all affected files using paths relative to the project root.
+  design:
+    - Define in-scope and out-of-scope behavior.
+    - Document data migration, rollback, conflict, offline, and secret-handling implications when applicable.
+    - Prefer standard libraries, platform-native features, and existing dependencies before adding dependencies.
+  specs:
+    - Use testable SHALL or MUST requirements with concrete scenarios.
+    - Cover offline sources, external modifications, and safe failure behavior when applicable.
+  tasks:
+    - Keep each task independently verifiable and small enough to complete in at most one hour.
+    - Name the exact build, test, audit, or manual verification required by each implementation group.
