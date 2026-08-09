@@ -26,7 +26,7 @@ import { DetailSheet } from "../components/DetailSheet";
 import { SkillMarkdown } from "../components/SkillMarkdown";
 import { DocumentDiffViewer } from "../components/DocumentDiffViewer";
 import * as api from "../lib/tauri";
-import type { ManagedSkill, ProjectSkill } from "../lib/tauri";
+import type { AgentLocalSkill, ManagedSkill } from "../lib/tauri";
 import { getErrorMessage } from "../lib/error";
 import { getTagActiveColor, getTagColor, pruneStaleTagFilters, UNTAGGED_FILTER } from "../lib/skillTags";
 import { AddSkillsSheet } from "../components/AddSkillsSheet";
@@ -52,6 +52,7 @@ function WorkspaceSkillCard({
   description,
   tags = [],
   status,
+  badge,
   fileCount = 0,
   active = false,
   actions,
@@ -63,6 +64,8 @@ function WorkspaceSkillCard({
   description?: string | null;
   tags?: WorkspaceSkillCardTag[];
   status: WorkspaceSkillCardStatus;
+  /** Extra pill next to the status, e.g. the read-only source marker. */
+  badge?: WorkspaceSkillCardStatus | null;
   fileCount?: number;
   active?: boolean;
   actions?: ReactNode;
@@ -110,6 +113,11 @@ function WorkspaceSkillCard({
           </div>
         )}
         <div className="flex shrink-0 items-center gap-2.5">
+          {badge && (
+            <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium", badge.className)}>
+              {badge.label}
+            </span>
+          )}
           <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium", status.className)}>
             {status.label}
           </span>
@@ -186,16 +194,23 @@ function WorkspaceSkillCard({
         )}
       </div>
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-border-faint px-3.5 py-2.5">
-        <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium", status.className)}>
-          {status.label}
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium", status.className)}>
+            {status.label}
+          </span>
+          {badge && (
+            <span className={cn("truncate rounded-full px-2 py-0.5 text-[12px] font-medium", badge.className)}>
+              {badge.label}
+            </span>
+          )}
+        </div>
         {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
       </div>
     </div>
   );
 }
 
-function getLocalStatusMeta(t: (key: string) => string, status: ProjectSkill["sync_status"]) {
+function getLocalStatusMeta(t: (key: string) => string, status: AgentLocalSkill["sync_status"]) {
   switch (status) {
     case "in_sync":
       return {
@@ -236,18 +251,18 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   const [tagFilters, setTagFilters] = useState<Set<string>>(new Set());
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [removingLocalSkillId, setRemovingLocalSkillId] = useState<string | null>(null);
-  const [localSkills, setLocalSkills] = useState<ProjectSkill[]>([]);
+  const [localSkills, setLocalSkills] = useState<AgentLocalSkill[]>([]);
   const [localSkillsLoading, setLocalSkillsLoading] = useState(false);
   const [localActionKey, setLocalActionKey] = useState<string | null>(null);
-  const [localDetailSkill, setLocalDetailSkill] = useState<ProjectSkill | null>(null);
+  const [localDetailSkill, setLocalDetailSkill] = useState<AgentLocalSkill | null>(null);
   const [localDocContent, setLocalDocContent] = useState<string | null>(null);
   const [localCenterDocContent, setLocalCenterDocContent] = useState<string | null>(null);
   const [localDocLoading, setLocalDocLoading] = useState(false);
   const [localCenterDocLoading, setLocalCenterDocLoading] = useState(false);
   const [localContentTab, setLocalContentTab] = useState<"local" | "diff" | "center">("local");
-  const [uploadConfirmSkill, setUploadConfirmSkill] = useState<ProjectSkill | null>(null);
-  const [pullConfirmSkill, setPullConfirmSkill] = useState<ProjectSkill | null>(null);
-  const [deleteLocalConfirmSkill, setDeleteLocalConfirmSkill] = useState<ProjectSkill | null>(null);
+  const [uploadConfirmSkill, setUploadConfirmSkill] = useState<AgentLocalSkill | null>(null);
+  const [pullConfirmSkill, setPullConfirmSkill] = useState<AgentLocalSkill | null>(null);
+  const [deleteLocalConfirmSkill, setDeleteLocalConfirmSkill] = useState<AgentLocalSkill | null>(null);
   const localDetailRequestRef = useRef(0);
 
   // Cross-category redirect: a deep link like /global-workspace/openclaw should
@@ -442,7 +457,7 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
         return true;
       })
       .sort((a, b) => {
-        const priority: Record<ProjectSkill["sync_status"], number> = {
+        const priority: Record<AgentLocalSkill["sync_status"], number> = {
           project_only: 0,
           project_newer: 1,
           diverged: 2,
@@ -478,9 +493,9 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
     [localSkills, managedLocalIds]
   );
 
-  const handleRemoveLocalManagedSkill = async (skill: ProjectSkill) => {
+  const handleRemoveLocalManagedSkill = async (skill: AgentLocalSkill) => {
     if (!agentKey || !skill.center_skill_id || !managedLocalIds.has(skill.center_skill_id)) return;
-    setRemovingLocalSkillId(skill.relative_path);
+    setRemovingLocalSkillId(skill.path);
     try {
       await api.unsyncSkillFromTool(skill.center_skill_id, agentKey);
       await Promise.all([refreshManagedSkills(), refreshTools(), loadLocalSkills()]);
@@ -497,12 +512,12 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   }, [loadLocalSkills, refreshManagedSkills, refreshTools]);
 
   const handleUploadLocalSkill = useCallback(
-    async (skill: ProjectSkill) => {
+    async (skill: AgentLocalSkill) => {
       if (!currentTool) return;
-      const key = `upload:${skill.relative_path}`;
+      const key = `upload:${skill.path}`;
       setLocalActionKey(key);
       try {
-        await api.importGlobalLocalSkillToCenter(currentTool.key, skill.relative_path);
+        await api.importGlobalLocalSkillToCenter(currentTool.key, skill.path);
         toast.success(t("globalWorkspace.localSkills.uploadedToast", { name: skill.name, agent: currentTool.display_name }));
         await Promise.all([loadLocalSkills(), refreshManagedSkills()]);
       } catch (error: unknown) {
@@ -516,12 +531,12 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   );
 
   const handleDeleteLocalSkill = useCallback(
-    async (skill: ProjectSkill) => {
+    async (skill: AgentLocalSkill) => {
       if (!currentTool) return;
-      const key = `delete:${skill.relative_path}`;
+      const key = `delete:${skill.path}`;
       setLocalActionKey(key);
       try {
-        await api.deleteGlobalLocalSkill(currentTool.key, skill.relative_path);
+        await api.deleteGlobalLocalSkill(currentTool.key, skill.path);
         toast.success(t("globalWorkspace.localSkills.deletedLocalToast", { name: skill.name, agent: currentTool.display_name }));
         await loadLocalSkills();
       } catch (error: unknown) {
@@ -535,12 +550,12 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   );
 
   const handlePullLocalSkill = useCallback(
-    async (skill: ProjectSkill) => {
+    async (skill: AgentLocalSkill) => {
       if (!currentTool) return;
-      const key = `pull:${skill.relative_path}`;
+      const key = `pull:${skill.path}`;
       setLocalActionKey(key);
       try {
-        await api.updateGlobalLocalSkillFromCenter(currentTool.key, skill.relative_path);
+        await api.updateGlobalLocalSkillFromCenter(currentTool.key, skill.path);
         toast.success(t("globalWorkspace.localSkills.pulledToast", { name: skill.name, agent: currentTool.display_name }));
         await loadLocalSkills();
       } catch (error: unknown) {
@@ -554,7 +569,7 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   );
 
   const openLocalDetail = useCallback(
-    async (skill: ProjectSkill) => {
+    async (skill: AgentLocalSkill) => {
       if (!currentTool) return;
       const requestId = localDetailRequestRef.current + 1;
       localDetailRequestRef.current = requestId;
@@ -566,7 +581,7 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
       setLocalCenterDocLoading(!!skill.center_skill_id);
 
       api
-        .getGlobalLocalSkillDocument(currentTool.key, skill.relative_path)
+        .getGlobalLocalSkillDocument(currentTool.key, skill.path)
         .then((doc) => {
           if (localDetailRequestRef.current === requestId) setLocalDocContent(doc.content);
         })
@@ -612,15 +627,29 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
     await Promise.all([refreshManagedSkills(), refreshTools(), loadLocalSkills()]);
   }, [loadLocalSkills, refreshManagedSkills, refreshTools]);
 
-  const renderLocalSkillActions = (skill: ProjectSkill, variant: "grid" | "list") => {
-    const uploadKey = `upload:${skill.relative_path}`;
-    const pullKey = `pull:${skill.relative_path}`;
-    const deleteKey = `delete:${skill.relative_path}`;
-    const canPull = skill.sync_status === "center_newer" || skill.sync_status === "diverged";
+  // A read-only row is never a managed target: its source is a discovery-only
+  // root that nothing deploys to, and the managed target this row's center skill
+  // does have points at a different (primary) path — so "remove from agent" here
+  // would act on a Skill the user is not looking at.
+  const isManagedLocalSkill = useCallback(
+    (skill: AgentLocalSkill) =>
+      !skill.read_only && !!skill.center_skill_id && managedLocalIds.has(skill.center_skill_id),
+    [managedLocalIds]
+  );
+
+  const renderLocalSkillActions = (skill: AgentLocalSkill, variant: "grid" | "list") => {
+    const uploadKey = `upload:${skill.path}`;
+    const pullKey = `pull:${skill.path}`;
+    const deleteKey = `delete:${skill.path}`;
+    // Pull and delete write to the source, so a read-only row offers neither;
+    // viewing the document and importing into the Library stay available.
+    const canPull =
+      !skill.read_only &&
+      (skill.sync_status === "center_newer" || skill.sync_status === "diverged");
     const isInSync = skill.sync_status === "in_sync";
-    const isManaged = !!skill.center_skill_id && managedLocalIds.has(skill.center_skill_id);
-    const canDeleteLocal = !isManaged && skill.sync_status === "project_only";
-    const removing = removingLocalSkillId === skill.relative_path;
+    const isManaged = isManagedLocalSkill(skill);
+    const canDeleteLocal = !skill.read_only && !isManaged && skill.sync_status === "project_only";
+    const removing = removingLocalSkillId === skill.path;
     const buttonClassName = variant === "grid"
       ? "rounded px-2 py-1 text-[13px] font-medium text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
       : "rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50";
@@ -972,16 +1001,30 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
         >
           {visibleLocalSkills.map((skill) => {
             const statusMeta = getLocalStatusMeta(t, skill.sync_status);
-            const isManaged = !!skill.center_skill_id && managedLocalIds.has(skill.center_skill_id);
+            const isManaged = isManagedLocalSkill(skill);
 
             return (
               <WorkspaceSkillCard
-                key={`${skill.agent}:${skill.relative_path}`}
+                key={skill.path}
                 viewMode={viewMode}
                 title={skill.name}
-                description={skill.description || skill.relative_path}
+                // Two rows can share a name and a relative path, so a read-only
+                // row leads with where it actually lives.
+                description={
+                  skill.read_only
+                    ? compactHomePath(skill.path)
+                    : skill.description || skill.relative_path
+                }
                 tags={skill.tags.map((tag) => ({ label: tag, className: getTagColor(tag, allLocalTags) }))}
                 status={statusMeta}
+                badge={
+                  skill.read_only
+                    ? {
+                        label: t("globalWorkspace.localSkills.readOnly"),
+                        className: "bg-surface-hover text-muted",
+                      }
+                    : null
+                }
                 fileCount={skill.files.length}
                 active={isManaged}
                 actions={renderLocalSkillActions(skill, viewMode)}
@@ -1018,8 +1061,15 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
               <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-medium", getLocalStatusMeta(t, localDetailSkill.sync_status).className)}>
                 {getLocalStatusMeta(t, localDetailSkill.sync_status).label}
               </span>
+              {localDetailSkill.read_only && (
+                <span className="rounded-full bg-surface-hover px-2.5 py-1 text-[12px] font-medium text-muted">
+                  {t("globalWorkspace.localSkills.readOnly")}
+                </span>
+              )}
+              {/* The absolute path, not the relative one: it is the only thing
+                  that tells a modern and a legacy same-name Skill apart. */}
               <span className="rounded-full bg-surface-hover px-2.5 py-1 text-[12px] text-muted">
-                {localDetailSkill.relative_path}
+                {compactHomePath(localDetailSkill.path)}
               </span>
             </div>
           ) : null

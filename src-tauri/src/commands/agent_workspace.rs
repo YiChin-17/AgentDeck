@@ -1,11 +1,13 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::Serialize;
 use tauri::State;
 
 use crate::commands::projects::{
-    classify_sync_status, ensure_dir_within_root, ensure_safe_skill_relative_path,
-    source_ref_matches_skill_path, ProjectSkillDocumentDto,
+    classify_sync_status, ensure_dir_within_root, source_ref_matches_skill_path,
+    ProjectSkillDocumentDto,
 };
 use crate::core::skill_store::{SkillRecord, SkillStore, SkillTargetRecord};
 use crate::core::{
@@ -36,7 +38,11 @@ fn adapter_for_agent(
         .ok_or_else(|| AppError::not_found(format!("Unknown agent: {}", agent)))
 }
 
-fn read_agent_local_skills(
+/// Skills living in the adapter's single writable root. Used by flows that may
+/// write back to what they find (the startup target backfill), which must never
+/// reach a discovery-only root — see [`scan_agent_local_skills`] for the read
+/// path that also covers those.
+fn read_agent_primary_skills(
     adapter: &tool_adapters::ToolAdapter,
 ) -> Vec<project_scanner::ProjectSkillInfo> {
     project_scanner::read_linked_workspace_skills(
@@ -46,6 +52,129 @@ fn read_agent_local_skills(
         &adapter.display_name,
         adapter.recursive_scan,
     )
+}
+
+/// One Agent Skills row: the existing skill fields plus the role of the root it
+/// was found in. `read_only` marks a discovery-only source (e.g. Codex's legacy
+/// `~/.codex/skills`), which may be read and imported but never written back to.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentLocalSkillDto {
+    #[serde(flatten)]
+    pub skill: project_scanner::ProjectSkillInfo,
+    pub read_only: bool,
+}
+
+/// A global Skill root for one agent, in precedence order.
+struct AgentSkillRoot {
+    path: PathBuf,
+    /// Discovery-only root: listed, never written to.
+    read_only: bool,
+    recursive: bool,
+}
+
+/// A scan hit. Carries the root it came from so later actions bound the path
+/// against the root that actually produced it, instead of re-deriving the
+/// primary root and rejecting (or worse, mis-accepting) a legacy path.
+struct ScannedAgentSkill {
+    skill: project_scanner::ProjectSkillInfo,
+    root: PathBuf,
+    read_only: bool,
+}
+
+fn canonical_root(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// The agent's global Skill roots: writable primary first, then every existing
+/// discovery-only root. An adapter's roots can alias one another — an override
+/// pointing at the legacy directory, or a symlink between them — so roots are
+/// deduplicated by canonical path and the first one in precedence order wins.
+/// That is what makes an override onto the legacy directory writable primary
+/// rather than a second, read-only listing of the same files.
+fn agent_skill_roots(adapter: &tool_adapters::ToolAdapter) -> Vec<AgentSkillRoot> {
+    let mut roots = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+
+    let primary = adapter.skills_dir();
+    if seen.insert(canonical_root(&primary)) {
+        roots.push(AgentSkillRoot {
+            path: primary,
+            read_only: false,
+            recursive: adapter.recursive_scan,
+        });
+    }
+
+    // Already filtered to roots that exist; a missing or unreadable one is
+    // simply absent, and nothing here creates it.
+    for dir in adapter.additional_existing_scan_dirs() {
+        if !seen.insert(canonical_root(&dir)) {
+            continue;
+        }
+        roots.push(AgentSkillRoot {
+            path: dir,
+            read_only: true,
+            // Additional roots keep the flat discovery the global scanner uses.
+            recursive: false,
+        });
+    }
+
+    roots
+}
+
+/// Two hits describe the same Skill copied into more than one root: same agent,
+/// same name, same enabled state, same bytes. Only then is dropping the
+/// lower-precedence one lossless. Deduplicating by name alone would hide a
+/// genuine conflict — two same-name Skills whose contents differ are two
+/// different Skills, and the user has to see both to resolve them. An unknown
+/// content hash never matches, so an unreadable directory is kept, not merged.
+fn is_equivalent_result(
+    a: &project_scanner::ProjectSkillInfo,
+    b: &project_scanner::ProjectSkillInfo,
+) -> bool {
+    a.agent == b.agent
+        && a.name.trim().to_lowercase() == b.name.trim().to_lowercase()
+        && a.enabled == b.enabled
+        && a.content_hash.is_some()
+        && a.content_hash == b.content_hash
+}
+
+/// Every Skill the Agent Skills view can show for this agent, across all of the
+/// agent's global roots, in precedence order.
+fn scan_agent_local_skills(adapter: &tool_adapters::ToolAdapter) -> Vec<ScannedAgentSkill> {
+    let mut results: Vec<ScannedAgentSkill> = Vec::new();
+
+    for root in agent_skill_roots(adapter) {
+        let skills = project_scanner::read_linked_workspace_skills(
+            &root.path,
+            None,
+            &adapter.key,
+            &adapter.display_name,
+            root.recursive,
+        );
+        for skill in skills {
+            if results
+                .iter()
+                .any(|existing| is_equivalent_result(&existing.skill, &skill))
+            {
+                continue;
+            }
+            results.push(ScannedAgentSkill {
+                skill,
+                root: root.path.clone(),
+                read_only: root.read_only,
+            });
+        }
+    }
+
+    // Per-root ordering is by name; re-sort so the merged list reads the same
+    // way. The sort is stable, so same-name rows keep their precedence order.
+    results.sort_by(|a, b| {
+        a.skill
+            .name
+            .to_lowercase()
+            .cmp(&b.skill.name.to_lowercase())
+    });
+    results
 }
 
 fn enrich_center_status(
@@ -68,15 +197,33 @@ fn enrich_center_status(
     skills
 }
 
-fn find_agent_skill(
+/// Resolve the row an action names. The client sends back the absolute path a
+/// previous list returned, but that path is never trusted on its own: the agent's
+/// roots are re-scanned here and the action proceeds only on an exact hit, using
+/// the freshly scanned result rather than anything the client sent. A path that
+/// was never listed, one whose Skill or root has since disappeared, and one whose
+/// root alias changed all fail closed — there is deliberately no fallback to a
+/// same-name Skill in another root, which would silently act on the wrong copy.
+fn find_scanned_agent_skill(
     adapter: &tool_adapters::ToolAdapter,
-    skill_relative_path: &str,
-) -> Result<project_scanner::ProjectSkillInfo, AppError> {
-    ensure_safe_skill_relative_path(skill_relative_path)?;
-    read_agent_local_skills(adapter)
+    skill_path: &str,
+) -> Result<ScannedAgentSkill, AppError> {
+    scan_agent_local_skills(adapter)
         .into_iter()
-        .find(|skill| skill.relative_path == skill_relative_path)
+        .find(|entry| entry.skill.path == skill_path)
         .ok_or_else(|| AppError::not_found("Skill not found in agent local directory"))
+}
+
+/// Reject an operation that would write to a discovery-only source. The UI hides
+/// these actions on a read-only row, so reaching here means a direct IPC call —
+/// it is refused rather than silently redirected at a same-name primary Skill.
+fn ensure_writable_source(entry: &ScannedAgentSkill) -> Result<(), AppError> {
+    if entry.read_only {
+        return Err(AppError::invalid_input(
+            "This skill lives in a read-only source directory and cannot be modified.",
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_agent_skill_path(path: &Path, skills_root: &Path) -> Result<(), AppError> {
@@ -142,20 +289,24 @@ fn find_verified_center_match<'a>(
 pub async fn get_global_local_skills(
     store: State<'_, Arc<SkillStore>>,
     agent: String,
-) -> Result<Vec<project_scanner::ProjectSkillInfo>, AppError> {
+) -> Result<Vec<AgentLocalSkillDto>, AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let adapter = adapter_for_agent(&store, &agent)?;
-        let skills = read_agent_local_skills(&adapter);
+        let scanned = scan_agent_local_skills(&adapter);
+        let read_only_flags: Vec<bool> = scanned.iter().map(|entry| entry.read_only).collect();
+        let skills: Vec<project_scanner::ProjectSkillInfo> =
+            scanned.into_iter().map(|entry| entry.skill).collect();
         let all_managed = store.get_all_skills().map_err(AppError::db)?;
         let all_targets = store.get_all_targets().map_err(AppError::db)?;
         let tags_map = store.get_tags_map().unwrap_or_default();
-        Ok(enrich_center_status(
-            skills,
-            &all_managed,
-            &all_targets,
-            &tags_map,
-        ))
+        Ok(
+            enrich_center_status(skills, &all_managed, &all_targets, &tags_map)
+                .into_iter()
+                .zip(read_only_flags)
+                .map(|(skill, read_only)| AgentLocalSkillDto { skill, read_only })
+                .collect(),
+        )
     })
     .await?
 }
@@ -164,85 +315,95 @@ pub async fn get_global_local_skills(
 pub async fn get_global_local_skill_document(
     store: State<'_, Arc<SkillStore>>,
     agent: String,
-    skill_relative_path: String,
+    skill_path: String,
 ) -> Result<ProjectSkillDocumentDto, AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let adapter = adapter_for_agent(&store, &agent)?;
-        ensure_safe_skill_relative_path(&skill_relative_path)?;
-
-        let skills_root = adapter.skills_dir();
-        let skill_dir = skills_root.join(&skill_relative_path);
-        ensure_agent_skill_path(&skill_dir, &skills_root)?;
-
-        let allowed_roots = vec![skills_root];
-        let candidates = ["SKILL.md", "skill.md", "CLAUDE.md", "README.md"];
-        for candidate in &candidates {
-            let file_path = skill_dir.join(candidate);
-            if !file_path.exists() {
-                continue;
-            }
-            if let Ok(meta) = std::fs::symlink_metadata(&file_path) {
-                if meta.file_type().is_symlink() {
-                    let resolved = match std::fs::canonicalize(&file_path) {
-                        Ok(path) => path,
-                        Err(_) => continue,
-                    };
-                    let in_allowed_root = allowed_roots.iter().any(|root| {
-                        std::fs::canonicalize(root)
-                            .map(|canon| resolved.starts_with(&canon))
-                            .unwrap_or(false)
-                    });
-                    if !in_allowed_root {
-                        continue;
-                    }
-                }
-            }
-            if file_path.is_file() {
-                let content = std::fs::read_to_string(&file_path)?;
-                return Ok(ProjectSkillDocumentDto {
-                    skill_name: skill_relative_path,
-                    filename: candidate.to_string(),
-                    content,
-                });
-            }
-        }
-
-        Err(AppError::not_found(
-            "No document file found in skill directory",
-        ))
+        let entry = find_scanned_agent_skill(&adapter, &skill_path)?;
+        read_agent_skill_document(&entry)
     })
     .await?
+}
+
+fn read_agent_skill_document(
+    entry: &ScannedAgentSkill,
+) -> Result<ProjectSkillDocumentDto, AppError> {
+    let skill_dir = PathBuf::from(&entry.skill.path);
+    ensure_agent_skill_path(&skill_dir, &entry.root)?;
+
+    let allowed_roots = vec![entry.root.clone()];
+    let candidates = ["SKILL.md", "skill.md", "CLAUDE.md", "README.md"];
+    for candidate in &candidates {
+        let file_path = skill_dir.join(candidate);
+        if !file_path.exists() {
+            continue;
+        }
+        if let Ok(meta) = std::fs::symlink_metadata(&file_path) {
+            if meta.file_type().is_symlink() {
+                let resolved = match std::fs::canonicalize(&file_path) {
+                    Ok(path) => path,
+                    Err(_) => continue,
+                };
+                let in_allowed_root = allowed_roots.iter().any(|root| {
+                    std::fs::canonicalize(root)
+                        .map(|canon| resolved.starts_with(&canon))
+                        .unwrap_or(false)
+                });
+                if !in_allowed_root {
+                    continue;
+                }
+            }
+        }
+        if file_path.is_file() {
+            let content = std::fs::read_to_string(&file_path)?;
+            return Ok(ProjectSkillDocumentDto {
+                skill_name: entry.skill.relative_path.clone(),
+                filename: candidate.to_string(),
+                content,
+            });
+        }
+    }
+
+    Err(AppError::not_found(
+        "No document file found in skill directory",
+    ))
 }
 
 #[tauri::command]
 pub async fn import_global_local_skill_to_center(
     store: State<'_, Arc<SkillStore>>,
     agent: String,
-    skill_relative_path: String,
+    skill_path: String,
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        import_agent_local_skill_to_center(&store, &agent, &skill_relative_path)
+        let adapter = adapter_for_agent(&store, &agent)?;
+        import_agent_local_skill_to_center(&store, &adapter, &skill_path)
     })
     .await?
 }
 
 fn import_agent_local_skill_to_center(
     store: &SkillStore,
-    agent: &str,
-    skill_relative_path: &str,
+    adapter: &tool_adapters::ToolAdapter,
+    skill_path: &str,
 ) -> Result<(), AppError> {
-    let adapter = adapter_for_agent(store, agent)?;
-    let skill = find_agent_skill(&adapter, skill_relative_path)?;
+    let entry = find_scanned_agent_skill(adapter, skill_path)?;
+    let skill = &entry.skill;
+    let agent = adapter.key.as_str();
 
-    let skills_root = adapter.skills_dir();
     let source_path = PathBuf::from(&skill.path);
-    ensure_agent_skill_path(&source_path, &skills_root)?;
+    ensure_agent_skill_path(&source_path, &entry.root)?;
+
+    // A discovery-only source may be copied INTO the Library, and that is where
+    // the import stops: registering a sync target would hand the on-disk artifact
+    // to sync_engine, which deploys the central copy over the root we promised
+    // never to write to. The Library skill still records where it came from.
 
     let all_managed = store.get_all_skills().unwrap_or_default();
     let all_targets = store.get_all_targets().unwrap_or_default();
-    if let Some(existing) = find_verified_center_match(&skill, &all_managed, &all_targets) {
+    if let Some(existing) = find_verified_center_match(skill, &all_managed, &all_targets) {
         let result = installer::install_from_local_to_destination(
             &source_path,
             Some(&existing.name),
@@ -272,6 +433,9 @@ fn import_agent_local_skill_to_center(
                 .map_err(AppError::db)?;
         }
 
+        if entry.read_only {
+            return Ok(());
+        }
         // Register this agent as a managed sync target so the adopted skill is
         // recognized as managed (gives it a delete button). Reusing the regular
         // sync path keeps the target consistent with every other managed skill:
@@ -308,6 +472,9 @@ fn import_agent_local_skill_to_center(
     };
 
     store.insert_skill(&skill_record).map_err(AppError::db)?;
+    if entry.read_only {
+        return Ok(());
+    }
     // Register the managed sync target (see note above). On failure, drop the
     // just-inserted skill row (which cascades to any target) so we never leave
     // an orphaned, button-less skill behind. We deliberately do NOT delete the
@@ -468,12 +635,11 @@ pub fn backfill_stranded_agent_targets(store: &SkillStore) -> usize {
         }
         let targets = store.get_all_targets().unwrap_or_default();
 
-        for skill in read_agent_local_skills(adapter) {
+        for skill in read_agent_primary_skills(adapter) {
             let canonical = std::fs::canonicalize(&skill.path).ok();
-            let Some(matched) = all_managed
-                .iter()
-                .find(|managed| source_ref_matches_skill_path(&skill.path, canonical.as_ref(), managed))
-            else {
+            let Some(matched) = all_managed.iter().find(|managed| {
+                source_ref_matches_skill_path(&skill.path, canonical.as_ref(), managed)
+            }) else {
                 continue;
             };
 
@@ -573,36 +739,39 @@ pub fn backfill_stranded_agent_targets(store: &SkillStore) -> usize {
 pub async fn update_global_local_skill_from_center(
     store: State<'_, Arc<SkillStore>>,
     agent: String,
-    skill_relative_path: String,
+    skill_path: String,
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        update_agent_local_skill_from_center(&store, &agent, &skill_relative_path)
+        let adapter = adapter_for_agent(&store, &agent)?;
+        update_agent_local_skill_from_center(&store, &adapter, &skill_path)
     })
     .await?
 }
 
 fn update_agent_local_skill_from_center(
     store: &SkillStore,
-    agent: &str,
-    skill_relative_path: &str,
+    adapter: &tool_adapters::ToolAdapter,
+    skill_path: &str,
 ) -> Result<(), AppError> {
-    let adapter = adapter_for_agent(store, agent)?;
-    let skill = find_agent_skill(&adapter, skill_relative_path)?;
+    let entry = find_scanned_agent_skill(adapter, skill_path)?;
+    ensure_writable_source(&entry)?;
+    let skill = &entry.skill;
+    let agent = adapter.key.as_str();
+
     let all_managed = store.get_all_skills().unwrap_or_default();
     let all_targets = store.get_all_targets().unwrap_or_default();
-    let managed = find_verified_center_match(&skill, &all_managed, &all_targets)
+    let managed = find_verified_center_match(skill, &all_managed, &all_targets)
         .ok_or_else(|| AppError::not_found("No matching managed skill in center"))?;
 
-    if classify_sync_status(&skill, Some(managed)) == "project_newer" {
+    if classify_sync_status(skill, Some(managed)) == "project_newer" {
         return Err(AppError::invalid_input(
             "Local skill is newer than the Skills Center version",
         ));
     }
 
-    let skills_root = adapter.skills_dir();
     let target_path = PathBuf::from(&skill.path);
-    ensure_agent_skill_path(&target_path, &skills_root)?;
+    ensure_agent_skill_path(&target_path, &entry.root)?;
 
     let source = PathBuf::from(&managed.central_path);
     let configured_mode = store.get_setting("sync_mode").map_err(AppError::db)?;
@@ -615,29 +784,31 @@ fn update_agent_local_skill_from_center(
 pub async fn delete_global_local_skill(
     store: State<'_, Arc<SkillStore>>,
     agent: String,
-    skill_relative_path: String,
+    skill_path: String,
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        delete_agent_local_skill(&store, &agent, &skill_relative_path)
+        let adapter = adapter_for_agent(&store, &agent)?;
+        delete_agent_local_skill(&store, &adapter, &skill_path)
     })
     .await?
 }
 
 fn delete_agent_local_skill(
     store: &SkillStore,
-    agent: &str,
-    skill_relative_path: &str,
+    adapter: &tool_adapters::ToolAdapter,
+    skill_path: &str,
 ) -> Result<(), AppError> {
-    let adapter = adapter_for_agent(store, agent)?;
-    let skill = find_agent_skill(&adapter, skill_relative_path)?;
+    let entry = find_scanned_agent_skill(adapter, skill_path)?;
+    ensure_writable_source(&entry)?;
+    let skill = &entry.skill;
 
     let all_managed = store.get_all_skills().unwrap_or_default();
     let all_targets = store.get_all_targets().unwrap_or_default();
-    if let Some(managed) = find_verified_center_match(&skill, &all_managed, &all_targets) {
-        let still_linked = all_targets
-            .iter()
-            .any(|t| t.skill_id == managed.id && target_path_equals_skill(&t.target_path, &skill.path));
+    if let Some(managed) = find_verified_center_match(skill, &all_managed, &all_targets) {
+        let still_linked = all_targets.iter().any(|t| {
+            t.skill_id == managed.id && target_path_equals_skill(&t.target_path, &skill.path)
+        });
         if still_linked {
             return Err(AppError::invalid_input(
                 "Skill is managed by Skills Center — remove from the agent first.",
@@ -645,9 +816,8 @@ fn delete_agent_local_skill(
         }
     }
 
-    let skills_root = adapter.skills_dir();
     let target_path = PathBuf::from(&skill.path);
-    ensure_agent_skill_path(&target_path, &skills_root)?;
+    ensure_agent_skill_path(&target_path, &entry.root)?;
     sync_engine::remove_target(&target_path).map_err(AppError::io)?;
     Ok(())
 }
@@ -655,14 +825,427 @@ fn delete_agent_local_skill(
 #[cfg(test)]
 mod tests {
     use super::{
-        backfill_stranded_agent_targets, enrich_center_status,
-        import_agent_local_skill_to_center, update_agent_local_skill_from_center,
+        backfill_stranded_agent_targets, delete_agent_local_skill, enrich_center_status,
+        find_scanned_agent_skill, import_agent_local_skill_to_center, read_agent_skill_document,
+        scan_agent_local_skills, update_agent_local_skill_from_center,
     };
     use crate::core::content_hash;
+    use crate::core::error::ErrorKind;
     use crate::core::project_scanner::ProjectSkillInfo;
     use crate::core::skill_store::{ScenarioRecord, SkillRecord, SkillStore};
     use crate::core::{central_repo, installer, tool_adapters, tool_service};
     use std::collections::HashMap;
+    use std::path::Path;
+
+    /// Adapter whose primary root is an absolute temp dir (via the override) and
+    /// whose discovery-only roots are absolute temp dirs too — `additional_scan_dirs`
+    /// entries are joined onto `$HOME`, and joining an absolute path replaces it.
+    fn test_adapter(primary: &Path, additional: &[&Path]) -> tool_adapters::ToolAdapter {
+        tool_adapters::ToolAdapter {
+            key: "test_agent".to_string(),
+            display_name: "Test Agent".to_string(),
+            relative_skills_dir: ".test-agent/skills".to_string(),
+            relative_detect_dir: ".test-agent".to_string(),
+            additional_scan_dirs: additional
+                .iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect(),
+            project_additional_scan_dirs: vec![],
+            override_skills_dir: Some(primary.to_string_lossy().to_string()),
+            is_custom: true,
+            recursive_scan: false,
+            project_relative_skills_dir: None,
+            category: tool_adapters::ToolCategory::default(),
+        }
+    }
+
+    fn write_skill(root: &Path, name: &str, body: &str) -> std::path::PathBuf {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {name} skill\n---\n{body}\n"),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn scan_lists_legacy_only_skill_as_read_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&primary).unwrap();
+        std::fs::create_dir_all(&legacy).unwrap();
+        let legacy_dir = write_skill(&legacy, "legacy-tool", "legacy");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].skill.name, "legacy-tool");
+        assert_eq!(scanned[0].skill.path, legacy_dir.to_string_lossy());
+        assert!(scanned[0].read_only);
+        assert_eq!(scanned[0].root, legacy);
+    }
+
+    #[test]
+    fn scan_marks_primary_skills_writable() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let primary_dir = write_skill(&primary, "modern-tool", "modern");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].skill.path, primary_dir.to_string_lossy());
+        assert!(!scanned[0].read_only);
+    }
+
+    #[test]
+    fn scan_skips_missing_additional_root_without_creating_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let missing = temp.path().join("does-not-exist");
+        write_skill(&primary, "modern-tool", "modern");
+
+        let adapter = test_adapter(&primary, &[&missing]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        // The readable root still lists, and the missing one is never created.
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].skill.name, "modern-tool");
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn scan_treats_override_onto_legacy_root_as_writable_primary() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join("codex-skills");
+        let legacy_dir = write_skill(&legacy, "legacy-tool", "legacy");
+
+        // Override resolves to the legacy directory, which is also configured as
+        // a discovery-only root.
+        let adapter = test_adapter(&legacy, &[&legacy]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].skill.path, legacy_dir.to_string_lossy());
+        assert!(!scanned[0].read_only);
+    }
+
+    #[test]
+    fn scan_prefers_primary_for_identical_copies() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        let primary_dir = write_skill(&primary, "shared-tool", "same body");
+        write_skill(&legacy, "shared-tool", "same body");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].skill.path, primary_dir.to_string_lossy());
+        assert!(!scanned[0].read_only);
+    }
+
+    #[test]
+    fn scan_keeps_conflicting_same_name_copies_distinct() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        let primary_dir = write_skill(&primary, "shared-tool", "modern body");
+        let legacy_dir = write_skill(&legacy, "shared-tool", "legacy body");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 2);
+        let paths: Vec<&str> = scanned.iter().map(|s| s.skill.path.as_str()).collect();
+        assert!(paths.contains(&primary_dir.to_string_lossy().as_ref()));
+        assert!(paths.contains(&legacy_dir.to_string_lossy().as_ref()));
+        // Each row keeps its own root role.
+        let primary_row = scanned
+            .iter()
+            .find(|s| s.skill.path == primary_dir.to_string_lossy())
+            .unwrap();
+        let legacy_row = scanned
+            .iter()
+            .find(|s| s.skill.path == legacy_dir.to_string_lossy())
+            .unwrap();
+        assert!(!primary_row.read_only);
+        assert!(legacy_row.read_only);
+    }
+
+    #[test]
+    fn scan_leaves_primary_results_unchanged_without_additional_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let a = write_skill(&primary, "alpha-tool", "alpha");
+        let b = write_skill(&primary, "beta-tool", "beta");
+
+        // An adapter with no discovery-only roots — every other agent.
+        let adapter = test_adapter(&primary, &[]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 2);
+        assert!(scanned.iter().all(|s| !s.read_only));
+        assert_eq!(scanned[0].skill.path, a.to_string_lossy());
+        assert_eq!(scanned[1].skill.path, b.to_string_lossy());
+    }
+
+    #[test]
+    fn document_reads_the_source_the_path_names_not_a_same_name_sibling() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        write_skill(&primary, "shared-tool", "modern body");
+        let legacy_dir = write_skill(&legacy, "shared-tool", "legacy body");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let entry = find_scanned_agent_skill(&adapter, &legacy_dir.to_string_lossy()).unwrap();
+        let doc = read_agent_skill_document(&entry).unwrap();
+
+        // Both rows share `relative_path`, so only the absolute path can pick one.
+        assert_eq!(entry.skill.relative_path, "shared-tool");
+        assert!(doc.content.contains("legacy body"));
+        assert!(!doc.content.contains("modern body"));
+    }
+
+    #[test]
+    fn actions_reject_a_path_that_was_never_scanned() {
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        central_repo::set_test_base_dir_override(Some(temp.path().join("center")));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        write_skill(&primary, "modern-tool", "modern");
+        let untrusted = temp.path().join("untrusted");
+        write_skill(&untrusted, "skill", "untrusted");
+
+        let adapter = test_adapter(&primary, &[]);
+        let err = import_agent_local_skill_to_center(
+            &store,
+            &adapter,
+            &untrusted.join("skill").to_string_lossy(),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.kind, ErrorKind::NotFound);
+        // No same-name fallback, and nothing was written to the Library.
+        assert!(store.get_all_skills().unwrap().is_empty());
+        assert!(store.get_all_targets().unwrap().is_empty());
+
+        central_repo::set_test_base_dir_override(None);
+    }
+
+    #[test]
+    fn actions_reject_a_path_that_disappeared_after_listing() {
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        central_repo::set_test_base_dir_override(Some(temp.path().join("center")));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        // A same-name Skill survives in the other root: the stale path must not
+        // silently resolve to it.
+        write_skill(&primary, "shared-tool", "modern body");
+        let legacy_dir = write_skill(&legacy, "shared-tool", "legacy body");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let listed_path = legacy_dir.to_string_lossy().to_string();
+        assert!(find_scanned_agent_skill(&adapter, &listed_path).is_ok());
+
+        std::fs::remove_dir_all(&legacy_dir).unwrap();
+
+        assert!(find_scanned_agent_skill(&adapter, &listed_path).is_err());
+        let err = import_agent_local_skill_to_center(&store, &adapter, &listed_path).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::NotFound);
+        assert!(store.get_all_skills().unwrap().is_empty());
+
+        central_repo::set_test_base_dir_override(None);
+    }
+
+    #[test]
+    fn dto_serializes_skill_fields_and_read_only_into_one_object() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&primary).unwrap();
+        write_skill(&legacy, "legacy-tool", "legacy");
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let entry = scan_agent_local_skills(&adapter).pop().unwrap();
+        let dto = super::AgentLocalSkillDto {
+            skill: entry.skill,
+            read_only: entry.read_only,
+        };
+
+        // The frontend reads `read_only` alongside the existing Skill fields, so
+        // the flattened shape is the IPC contract, not an implementation detail.
+        let json: serde_json::Value = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["name"], "legacy-tool");
+        assert!(json["path"].as_str().unwrap().ends_with("legacy-tool"));
+        assert_eq!(json["read_only"], true);
+        assert!(json.get("skill").is_none());
+    }
+
+    #[test]
+    fn read_only_document_leaves_the_source_untouched() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&primary).unwrap();
+        let legacy_dir = write_skill(&legacy, "legacy-tool", "legacy body");
+        let before = content_hash::hash_directory(&legacy_dir).unwrap();
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let entry = find_scanned_agent_skill(&adapter, &legacy_dir.to_string_lossy()).unwrap();
+        assert!(entry.read_only);
+        let doc = read_agent_skill_document(&entry).unwrap();
+
+        assert!(doc.content.contains("legacy body"));
+        assert_eq!(content_hash::hash_directory(&legacy_dir).unwrap(), before);
+    }
+
+    #[test]
+    fn read_only_import_creates_center_skill_without_target_or_deployment() {
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        central_repo::set_test_base_dir_override(Some(temp.path().join("center")));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&primary).unwrap();
+        let legacy_dir = write_skill(&legacy, "legacy-tool", "legacy body");
+        let before = content_hash::hash_directory(&legacy_dir).unwrap();
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        import_agent_local_skill_to_center(&store, &adapter, &legacy_dir.to_string_lossy())
+            .unwrap();
+
+        // The central Library gains the skill...
+        let skills = store.get_all_skills().unwrap();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "legacy-tool");
+        // ...with no managed target, so nothing deploys back over the source.
+        assert!(store.get_all_targets().unwrap().is_empty());
+        // The legacy source is byte-identical and still a real directory (a
+        // managed target would have replaced it with a symlink).
+        assert_eq!(content_hash::hash_directory(&legacy_dir).unwrap(), before);
+        assert!(!std::fs::symlink_metadata(&legacy_dir)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        // And the primary root gains no copy of it.
+        assert!(!primary.join("legacy-tool").exists());
+
+        central_repo::set_test_base_dir_override(None);
+    }
+
+    #[test]
+    fn read_only_pull_and_delete_are_rejected() {
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        central_repo::set_test_base_dir_override(Some(temp.path().join("center")));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&primary).unwrap();
+        let legacy_dir = write_skill(&legacy, "legacy-tool", "legacy body");
+
+        // A center skill with newer content, matched to the legacy source, so the
+        // rejection comes from the read-only guard and not from a missing match.
+        let center_source = temp.path().join("center-source");
+        write_skill(&center_source, "legacy-tool", "center body");
+        let existing = installer::install_from_local(&center_source, Some("legacy-tool")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        store
+            .insert_skill(&SkillRecord {
+                id: "center".to_string(),
+                name: "legacy-tool".to_string(),
+                description: existing.description.clone(),
+                source_type: "local".to_string(),
+                source_ref: Some(legacy_dir.to_string_lossy().to_string()),
+                source_ref_resolved: None,
+                source_subpath: None,
+                source_branch: None,
+                source_revision: None,
+                remote_revision: None,
+                central_path: existing.central_path.to_string_lossy().to_string(),
+                content_hash: Some(existing.content_hash.clone()),
+                enabled: true,
+                created_at: now,
+                updated_at: now,
+                status: "ok".to_string(),
+                update_status: "local_only".to_string(),
+                last_checked_at: Some(now),
+                last_check_error: None,
+            })
+            .unwrap();
+
+        let adapter = test_adapter(&primary, &[&legacy]);
+        let before = content_hash::hash_directory(&legacy_dir).unwrap();
+        let path = legacy_dir.to_string_lossy().to_string();
+
+        let pull = update_agent_local_skill_from_center(&store, &adapter, &path).unwrap_err();
+        assert_eq!(pull.kind, ErrorKind::InvalidInput);
+
+        let delete = delete_agent_local_skill(&store, &adapter, &path).unwrap_err();
+        assert_eq!(delete.kind, ErrorKind::InvalidInput);
+
+        // Both refusals leave the legacy source exactly as it was.
+        assert!(legacy_dir.exists());
+        assert_eq!(content_hash::hash_directory(&legacy_dir).unwrap(), before);
+
+        central_repo::set_test_base_dir_override(None);
+    }
+
+    #[test]
+    fn primary_delete_removes_an_unmanaged_local_skill() {
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        central_repo::set_test_base_dir_override(Some(temp.path().join("center")));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        let legacy = temp.path().join("codex-skills");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let primary_dir = write_skill(&primary, "modern-tool", "modern body");
+
+        // The read-only guard must not change what a writable primary row does.
+        let adapter = test_adapter(&primary, &[&legacy]);
+        delete_agent_local_skill(&store, &adapter, &primary_dir.to_string_lossy()).unwrap();
+
+        assert!(!primary_dir.exists());
+
+        central_repo::set_test_base_dir_override(None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_traverses_a_canonical_root_alias_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("agents-skills");
+        write_skill(&primary, "shared-tool", "shared");
+        let alias = temp.path().join("codex-skills");
+        std::os::unix::fs::symlink(&primary, &alias).unwrap();
+
+        let adapter = test_adapter(&primary, &[&alias]);
+        let scanned = scan_agent_local_skills(&adapter);
+
+        assert_eq!(scanned.len(), 1);
+        assert!(!scanned[0].read_only);
+        assert_eq!(scanned[0].root, primary);
+    }
 
     #[test]
     fn importing_agent_local_skill_attaches_target_but_not_scenario() {
@@ -711,7 +1294,8 @@ mod tests {
             .unwrap();
         store.set_active_scenario("active").unwrap();
 
-        import_agent_local_skill_to_center(&store, "test_agent", "local-tool").unwrap();
+        let adapter = super::adapter_for_agent(&store, "test_agent").unwrap();
+        import_agent_local_skill_to_center(&store, &adapter, &skill_dir.to_string_lossy()).unwrap();
 
         let skills = store.get_all_skills().unwrap();
         assert_eq!(skills.len(), 1);
@@ -865,7 +1449,8 @@ mod tests {
             )
             .unwrap();
 
-        import_agent_local_skill_to_center(&store, "test_agent", "local-tool").unwrap();
+        let adapter = super::adapter_for_agent(&store, "test_agent").unwrap();
+        import_agent_local_skill_to_center(&store, &adapter, &skill_dir.to_string_lossy()).unwrap();
 
         let skills = store.get_all_skills().unwrap();
         assert_eq!(skills.len(), 2);
@@ -940,7 +1525,8 @@ mod tests {
             )
             .unwrap();
 
-        import_agent_local_skill_to_center(&store, "test_agent", "local-tool").unwrap();
+        let adapter = super::adapter_for_agent(&store, "test_agent").unwrap();
+        import_agent_local_skill_to_center(&store, &adapter, &skill_dir.to_string_lossy()).unwrap();
 
         // The existing center skill is reused, not duplicated.
         let skills = store.get_all_skills().unwrap();
@@ -1377,7 +1963,9 @@ mod tests {
             })
             .unwrap();
 
-        let result = update_agent_local_skill_from_center(&store, "test_agent", "local-tool");
+        let adapter = super::adapter_for_agent(&store, "test_agent").unwrap();
+        let result =
+            update_agent_local_skill_from_center(&store, &adapter, &skill_dir.to_string_lossy());
         assert!(result.is_err());
         let local_content = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
         assert!(local_content.contains("agent newer"));

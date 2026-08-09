@@ -1042,6 +1042,7 @@
       "pull": "Pull",
       "removeManaged": "Remove from agent",
       "deleteLocal": "Delete local skill",
+      "readOnly": "Read-only source",
       "deleteLocalConfirmTitle": "Delete local skill?",
       "deleteLocalConfirmMessage": "Delete \"{{name}}\" from {{agent}}? This removes the local files and cannot be undone.",
       "deletedLocalToast": "Deleted \"{{name}}\" from {{agent}}.",

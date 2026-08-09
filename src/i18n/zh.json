@@ -1042,6 +1042,7 @@
       "pull": "拉取",
       "removeManaged": "从 Agent 移除",
       "deleteLocal": "删除本地 Skill",
+      "readOnly": "只读来源",
       "deleteLocalConfirmTitle": "删除本地 Skill？",
       "deleteLocalConfirmMessage": "从 {{agent}} 中删除“{{name}}”？此操作会删除本地文件且不可恢复。",
       "deletedLocalToast": "已从 {{agent}} 删除“{{name}}”。",

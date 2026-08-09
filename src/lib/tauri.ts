@@ -177,6 +177,17 @@ export interface ProjectSkill {
   center_skill_id: string | null;
 }
 
+/**
+ * A Skill row in the Agent Skills view. Extends {@link ProjectSkill} with the
+ * role of the root it was found in: `read_only` marks a discovery-only source
+ * (e.g. Codex's legacy `~/.codex/skills`) that may be viewed and imported but
+ * never written back to. Agent Skills rows are identified by their absolute
+ * `path`, since a modern and a legacy copy can share the same `relative_path`.
+ */
+export interface AgentLocalSkill extends ProjectSkill {
+  read_only: boolean;
+}
+
 export interface ProjectSkillDocument {
   skill_name: string;
   filename: string;
@@ -784,16 +795,16 @@ export const slugifySkillNames = (names: string[]) =>
 // ── Agent Local Workspace ──
 
 export const getGlobalLocalSkills = (agent: string) =>
-  invoke<ProjectSkill[]>("get_global_local_skills", { agent });
+  invoke<AgentLocalSkill[]>("get_global_local_skills", { agent });
 
-export const getGlobalLocalSkillDocument = (agent: string, skillRelativePath: string) =>
-  invoke<ProjectSkillDocument>("get_global_local_skill_document", { agent, skillRelativePath });
+export const getGlobalLocalSkillDocument = (agent: string, skillPath: string) =>
+  invoke<ProjectSkillDocument>("get_global_local_skill_document", { agent, skillPath });
 
-export const importGlobalLocalSkillToCenter = (agent: string, skillRelativePath: string) =>
-  invoke<void>("import_global_local_skill_to_center", { agent, skillRelativePath });
+export const importGlobalLocalSkillToCenter = (agent: string, skillPath: string) =>
+  invoke<void>("import_global_local_skill_to_center", { agent, skillPath });
 
-export const updateGlobalLocalSkillFromCenter = (agent: string, skillRelativePath: string) =>
-  invoke<void>("update_global_local_skill_from_center", { agent, skillRelativePath });
+export const updateGlobalLocalSkillFromCenter = (agent: string, skillPath: string) =>
+  invoke<void>("update_global_local_skill_from_center", { agent, skillPath });
 
-export const deleteGlobalLocalSkill = (agent: string, skillRelativePath: string) =>
-  invoke<void>("delete_global_local_skill", { agent, skillRelativePath });
+export const deleteGlobalLocalSkill = (agent: string, skillPath: string) =>
+  invoke<void>("delete_global_local_skill", { agent, skillPath });
