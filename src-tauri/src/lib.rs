@@ -468,6 +468,10 @@ fn apply_preset_from_tray<R: tauri::Runtime>(
                     return Ok(false);
                 }
             };
+            // The tray reaches this without going through any command, so it
+            // needs its own gate: applying a preset writes deployment targets
+            // from Library files.
+            core::library_availability::ensure_library_online().map_err(|e| e.message.clone())?;
             core::scenario_service::ensure_scenario_exists(&store_for_task, &preset_id_for_task)
                 .map_err(|e| e.to_string())?;
             let skill_ids = store_for_task

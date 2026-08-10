@@ -6,6 +6,7 @@ use std::time::Instant;
 use tauri::{AppHandle, State};
 
 use crate::core::error::AppError;
+use crate::core::library_availability;
 use crate::core::scenario_service;
 use crate::core::scenario_service::sync_scenario_skills;
 use crate::core::skill_store::SkillStore;
@@ -104,6 +105,12 @@ pub async fn set_tool_enabled(
     enabled: bool,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Both directions touch deployment: disabling unsyncs every target for the
+    // agent, enabling re-syncs them from Library files. The removal writes to
+    // internal storage and would succeed offline, while the re-sync could not —
+    // Settings stays reachable (design contract), so the refusal has to come
+    // from here rather than from a disabled control.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let mut disabled = get_disabled_tools(&store);
@@ -133,6 +140,8 @@ pub async fn set_all_tools_enabled(
     enabled: bool,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Same as `set_tool_enabled`, across every adapter at once.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         if enabled {
@@ -181,6 +190,9 @@ pub async fn set_custom_tool_path(
     path: String,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Repointing an agent unsyncs the old path's targets and re-syncs from
+    // Library files. Offline the delete lands and the restore cannot.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let key = key.trim().to_string();
@@ -218,6 +230,8 @@ pub async fn reset_custom_tool_path(
     key: String,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Same reconcile path as `set_custom_tool_path`.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let old_adapter = tool_adapters::find_adapter_with_store(&store, &key)
@@ -244,6 +258,8 @@ pub async fn set_custom_tool_project_path(
     project_relative_skills_dir: Option<String>,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Same reconcile path as `set_custom_tool_path`.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let key = key.trim().to_string();
@@ -316,6 +332,8 @@ pub async fn add_custom_tool(
     project_relative_skills_dir: Option<String>,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // A newly added agent is immediately synced from Library files.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let key = key.trim().to_string();
@@ -357,6 +375,10 @@ pub async fn remove_custom_tool(
     key: String,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Deliberately unguarded, unlike its siblings above: removing an agent the
+    // user no longer wants only tears its deployment down — there is nothing to
+    // re-sync from the Library afterwards, so an absent volume cannot leave this
+    // half-applied.
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         // Remove synced targets for this tool
@@ -510,5 +532,44 @@ mod tests {
         assert!(targets.iter().any(|target| {
             target.skill_id == "second" && target.target_path.ends_with("skill123-2")
         }));
+    }
+
+    /// These commands tear down deployment targets, and the removal lands on
+    /// internal storage — offline it succeeds while the re-sync that should
+    /// follow cannot. They are reached from Settings, which the design contract
+    /// keeps usable while offline, so a disabled control cannot be the defence:
+    /// the guard has to sit in the command. Asserted structurally because the
+    /// commands need Tauri `State` and cannot be called directly from a test.
+    #[test]
+    fn every_deployment_touching_command_is_guarded() {
+        let source = include_str!("tools.rs");
+        for command in [
+            "pub async fn set_tool_enabled(",
+            "pub async fn set_all_tools_enabled(",
+            "pub async fn set_custom_tool_path(",
+            "pub async fn reset_custom_tool_path(",
+            "pub async fn set_custom_tool_project_path(",
+            "pub async fn add_custom_tool(",
+        ] {
+            let start = source
+                .find(command)
+                .unwrap_or_else(|| panic!("{command} no longer exists; update this list"));
+            let body = &source[start..];
+            let body_end = body.find("\n    tauri::async_runtime::spawn_blocking").unwrap_or(body.len());
+            assert!(
+                body[..body_end].contains("library_availability::ensure_library_online()?"),
+                "{command} lost its offline guard: an offline run would delete \
+                 deployment targets it cannot restore"
+            );
+        }
+
+        // The deliberate exception, kept honest: nothing is re-synced after it.
+        let start = source.find("pub async fn remove_custom_tool(").unwrap();
+        let body = &source[start..];
+        let body_end = body.find("\n    tauri::async_runtime::spawn_blocking").unwrap_or(body.len());
+        assert!(
+            !body[..body_end].contains("ensure_library_online"),
+            "remove_custom_tool is intentionally unguarded; if that changed, update the reasoning"
+        );
     }
 }

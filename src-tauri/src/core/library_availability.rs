@@ -312,8 +312,14 @@ pub fn poll_availability() -> LibraryAvailability {
     fresh
 }
 
-/// Record that the Library became unusable at runtime. Keeps the configured
-/// path so the UI can still say which Library is missing.
+/// Force the offline verdict, for tests that need a specific reason without a
+/// real volume to probe.
+///
+/// Production code never declares offline unconditionally: it re-probes
+/// (`ensure_library_online`, `poll_availability`) so an unrelated failure —
+/// permissions, a full disk — is not reported to the user as a disconnected
+/// Library.
+#[cfg(test)]
 pub fn mark_offline(reason: LibraryReason) {
     let mut next = availability();
     next.state = LibraryState::Offline;

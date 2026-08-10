@@ -1128,6 +1128,10 @@ pub async fn check_skill_update(
         // meant one check of a slow remote could occupy the repository for the
         // whole round-trip and fail every concurrent operation (#315).
         let prefetched = prefetch_skill_remote(&store, &skill_id, force, proxy_url.as_deref());
+        // Deliberately `acquire_foreground`, not `acquire_library_write`: this
+        // compares the recorded revision against the remote and writes only
+        // source metadata rows, which live in internal state. It never touches
+        // Library files, so it stays usable while the volume is away.
         let _lock = RepoLock::acquire_foreground("check skill update").map_err(AppError::db)?;
         check_skill_update_internal_with_remote(&store, &skill_id, force, prefetched)
     })

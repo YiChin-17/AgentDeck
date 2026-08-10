@@ -107,7 +107,16 @@ where
     F: FnOnce() -> Result<T>,
 {
     let _lock = RepoLock::acquire_library_write(operation)?;
-    f().map_err(crate::core::error::AppError::db)
+    let outcome = f();
+    if outcome.is_err() {
+        // The pre-write check passed, so the volume was there when this started
+        // and may have gone away mid-write. Re-probe rather than assume: a
+        // Library that really is gone must not stay `online` until the next
+        // page load, while an unrelated failure (permissions, disk full) must
+        // not be reported to the user as a disconnected Library.
+        crate::core::library_availability::poll_availability();
+    }
+    outcome.map_err(crate::core::error::AppError::db)
 }
 
 pub(crate) fn write_all_from_db_unlocked(store: &SkillStore) -> Result<()> {
@@ -725,6 +734,75 @@ mod tests {
         assert!(
             !metadata_dir().exists(),
             "no metadata may be written into an offline Library"
+        );
+    }
+
+    /// The pre-write check cannot cover a volume pulled *during* the write.
+    /// Without the re-probe on failure the state stays `online`, so the banner
+    /// never appears and every control stays enabled until the next page load.
+    #[test]
+    fn a_write_that_fails_on_a_vanished_library_transitions_to_offline() {
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, availability, set_availability,
+        };
+
+        let _repo = test_repo();
+        let base = central_repo::library_base_dir();
+        set_availability(LibraryAvailability {
+            state: LibraryState::Online,
+            reason: LibraryReason::Ok,
+            configured_path: base.clone(),
+            library_id: None,
+        });
+
+        // The volume has to survive the gate and disappear *inside* the write —
+        // removing it any earlier means `acquire_library_write` refuses and the
+        // failure path under test never runs.
+        let failed = with_library_write_lock("write metadata", || -> Result<()> {
+            fs::remove_dir_all(&base).unwrap();
+            Err(anyhow::anyhow!("write failed: the volume went away"))
+        });
+
+        let after = availability();
+        set_availability(LibraryAvailability {
+            state: LibraryState::Online,
+            reason: LibraryReason::Ok,
+            configured_path: base,
+            library_id: None,
+        });
+
+        assert!(failed.is_err(), "the caller still sees its own failure");
+        assert_eq!(after.state, LibraryState::Offline);
+        assert_eq!(after.reason, LibraryReason::MissingPath);
+    }
+
+    /// A failure that is not the Library going away must not be reported as a
+    /// disconnected Library — the user would go looking for a cable.
+    #[test]
+    fn a_write_that_fails_for_another_reason_stays_online() {
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, availability, set_availability,
+        };
+
+        let _repo = test_repo();
+        let base = central_repo::library_base_dir();
+        set_availability(LibraryAvailability {
+            state: LibraryState::Online,
+            reason: LibraryReason::Ok,
+            configured_path: base,
+            library_id: None,
+        });
+
+        let failed = with_library_write_lock("write metadata", || -> Result<()> {
+            Err(anyhow::anyhow!("disk full"))
+        });
+
+        let after = availability();
+
+        assert!(failed.is_err());
+        assert!(
+            after.is_online(),
+            "the Library is still there; only the write failed: {after:?}"
         );
     }
 

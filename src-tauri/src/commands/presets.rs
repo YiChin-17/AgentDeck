@@ -6,6 +6,7 @@ use tauri::State;
 
 use crate::core::{
     error::AppError,
+    library_availability,
     scenario_service::{self, BatchApplyMode},
     skill_store::{ScenarioRecord, SkillStore},
     sync_metadata, tool_adapters,
@@ -170,7 +171,6 @@ pub async fn update_preset(
             store.update_scenario(&id, &name, description.as_deref(), icon.as_deref())?;
             sync_metadata::write_all_from_db_unlocked(&store)
         })
-        .map_err(AppError::db)
     })
     .await?;
     if result.is_ok() {
@@ -253,6 +253,12 @@ async fn apply_preset_to_default_impl(
     id: String,
     store: Arc<SkillStore>,
 ) -> Result<(), AppError> {
+    // Switching Skill Packs unsyncs the outgoing pack's targets before syncing
+    // the incoming one. Offline the removal still succeeds — those files live on
+    // internal storage — and the re-sync cannot, so the user ends up with no
+    // deployment at all. Guarded here rather than in `scenario_service` because
+    // the CLI calls the same function against its own explicitly named root.
+    library_availability::ensure_library_online()?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         scenario_service::apply_scenario_to_default(&store, &id)
     })
@@ -328,7 +334,6 @@ pub async fn reorder_presets(
             store.reorder_scenarios(&ids)?;
             sync_metadata::write_all_from_db_unlocked(&store)
         })
-        .map_err(AppError::db)
     })
     .await?;
     if result.is_ok() {
@@ -363,7 +368,6 @@ pub async fn reorder_preset_skills(
             store.reorder_scenario_skills(&preset_id, &skill_ids)?;
             sync_metadata::write_all_from_db_unlocked(&store)
         })
-        .map_err(AppError::db)
     })
     .await?
 }
@@ -410,6 +414,8 @@ pub async fn apply_preset_to_coding_agents(
     mode: PresetApplyMode,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
+    // Writes deployment targets for every selected agent from Library files.
+    library_availability::ensure_library_online()?;
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         scenario_service::ensure_scenario_exists(&store, &preset_id)?;
@@ -635,5 +641,51 @@ mod tests {
         assert!(targets.iter().any(|target| {
             target.skill_id == "second" && target.target_path.ends_with("skill123-2")
         }));
+    }
+
+    /// `with_library_write_lock` already returns a typed `AppError`; wrapping it
+    /// in `AppError::db` again rewrote `library_offline` into `database`, so the
+    /// frontend saw a bare "missing_path" it could not map to the offline UI.
+    #[test]
+    fn scenario_writes_keep_the_offline_error_kind() {
+        let source = include_str!("presets.rs");
+        for command in [
+            "pub async fn update_preset(",
+            "pub async fn reorder_presets(",
+            "pub async fn reorder_preset_skills(",
+        ] {
+            let start = source
+                .find(command)
+                .unwrap_or_else(|| panic!("{command} no longer exists; update this list"));
+            let body = &source[start..];
+            let end = body.find("\n#[tauri::command]").unwrap_or(body.len());
+            assert!(
+                !body[..end].contains(".map_err(AppError::db)\n    })"),
+                "{command} flattens the guard's error: an offline write would be \
+                 reported to the frontend as a database failure"
+            );
+        }
+    }
+
+    /// Applying a Skill Pack unsyncs the outgoing pack before syncing the
+    /// incoming one. The removal lands on internal storage and would succeed
+    /// offline; the re-sync could not, leaving no deployment at all.
+    #[test]
+    fn preset_apply_entry_points_are_guarded() {
+        let source = include_str!("presets.rs");
+        for entry in [
+            "async fn apply_preset_to_default_impl(",
+            "pub async fn apply_preset_to_coding_agents(",
+        ] {
+            let start = source
+                .find(entry)
+                .unwrap_or_else(|| panic!("{entry} no longer exists; update this list"));
+            let body = &source[start..];
+            let end = body.find("spawn_blocking").unwrap_or(body.len());
+            assert!(
+                body[..end].contains("library_availability::ensure_library_online()?"),
+                "{entry} lost its offline guard"
+            );
+        }
     }
 }

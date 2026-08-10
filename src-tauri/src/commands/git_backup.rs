@@ -1,6 +1,6 @@
 use crate::core::{
     central_repo, error::AppError, git2_engine, git_backup, git_credentials, git_fetcher,
-    github_api, merge, skill_metadata, sync_metadata,
+    github_api, library_availability, merge, skill_metadata, sync_metadata,
 };
 use anyhow::Context;
 use std::path::Path;
@@ -85,6 +85,10 @@ impl Drop for FetchInFlightGuard {
 
 #[tauri::command]
 pub async fn git_backup_fetch(store: State<'_, Arc<SkillStore>>) -> Result<(), AppError> {
+    // Fetch writes objects into the Library's `.git`. Offline that is either a
+    // path that is not there or — worse, on `identity_mismatch` — some other
+    // volume's repository mounted where ours used to be.
+    library_availability::ensure_library_online()?;
     sync_engine_pref(&store);
     // Coalesce concurrent fetches: a `git fetch` against the central repo
     // already in flight makes any duplicate request redundant, and stacking
@@ -297,6 +301,8 @@ pub async fn git_backup_set_remote(
     store: State<'_, Arc<SkillStore>>,
     url: String,
 ) -> Result<String, AppError> {
+    // Writes git config inside the Library's repository.
+    library_availability::ensure_library_online()?;
     sync_engine_pref(&store);
     git_fetcher::validate_git_url(&url).map_err(AppError::git)?;
     let skills_dir = central_repo::skills_dir();
@@ -320,6 +326,11 @@ pub async fn git_backup_remove_remote(store: State<'_, Arc<SkillStore>>) -> Resu
 }
 
 fn disconnect_local(store: &SkillStore, skills_dir: &Path) -> Result<(), AppError> {
+    // Deleting the credential and clearing the settings rows does not need the
+    // volume, so offline this would run to completion and destroy state the
+    // user cannot see — while the git remote it is supposed to remove survives
+    // on the disconnected Library.
+    library_availability::ensure_library_online()?;
     // Collect credential hosts before the URLs are gone.
     let mut hosts = std::collections::HashSet::new();
     if let Some(url) = git_backup::raw_remote_url(skills_dir) {
@@ -363,6 +374,10 @@ pub async fn git_backup_commit(
 
 #[tauri::command]
 pub async fn git_backup_push(store: State<'_, Arc<SkillStore>>) -> Result<(), AppError> {
+    // On `identity_mismatch` the repository at the configured path belongs to a
+    // different Library; pushing it would publish that volume's contents to the
+    // user's remote.
+    library_availability::ensure_library_online()?;
     sync_engine_pref(&store);
     let store = store.inner().clone();
     let skills_dir = central_repo::skills_dir();
@@ -625,6 +640,8 @@ pub async fn git_backup_reclone(
 pub async fn git_backup_create_snapshot(
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<String, AppError> {
+    // Writes a tag into the Library's repository.
+    library_availability::ensure_library_online()?;
     let _ = store;
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
@@ -860,6 +877,56 @@ mod tests {
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Disconnect is the one backup flow whose damage does not need the volume:
+    /// it clears settings rows and deletes the machine's stored credential.
+    /// Offline it must refuse outright, or the user loses the credential while
+    /// the remote it was supposed to detach survives on the absent Library.
+    #[test]
+    fn disconnect_is_refused_while_offline_and_keeps_credentials() {
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, availability, set_availability,
+        };
+
+        let env = test_env();
+        git(&env.skills_dir, &["init", "-b", "main"]);
+        git(
+            &env.skills_dir,
+            &["remote", "add", "origin", "https://github.com/me/backup.git"],
+        );
+        env.store
+            .set_setting("git_backup_remote_url", "https://github.com/me/backup.git")
+            .unwrap();
+
+        let restore = availability();
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::IdentityMismatch,
+            configured_path: env.skills_dir.clone(),
+            library_id: None,
+        });
+
+        let refused = disconnect_local(&env.store, &env.skills_dir);
+
+        set_availability(restore);
+
+        let err = refused.expect_err("offline disconnect must fail closed");
+        assert_eq!(err.kind, crate::core::error::ErrorKind::LibraryOffline);
+        assert_eq!(err.message, "identity_mismatch");
+        assert_eq!(
+            env.store
+                .get_setting("git_backup_remote_url")
+                .unwrap()
+                .as_deref(),
+            Some("https://github.com/me/backup.git"),
+            "settings rows must survive a refused disconnect"
+        );
+        assert_eq!(
+            origin_url(&env.skills_dir),
+            "https://github.com/me/backup.git",
+            "the git remote must survive a refused disconnect"
+        );
     }
 
     #[test]

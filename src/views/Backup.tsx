@@ -1121,7 +1121,8 @@ export function Backup() {
               <button
                 type="button"
                 onClick={handleSaveRemote}
-                disabled={loading === "save"}
+                disabled={loading === "save" || libraryOffline}
+                title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-2.5 text-[13px] font-medium text-tertiary transition-colors hover:bg-surface-active disabled:opacity-50"
               >
                 {loading === "save" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -1253,7 +1254,12 @@ export function Backup() {
               <button
                 type="button"
                 onClick={() => setDisconnectConfirmOpen(true)}
-                disabled={loading === "disconnect" || (!remoteConfig && !gitStatus?.remote_url)}
+                disabled={
+                  loading === "disconnect"
+                  || libraryOffline
+                  || (!remoteConfig && !gitStatus?.remote_url)
+                }
+                title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-2.5 text-[13px] font-medium text-tertiary transition-colors hover:bg-surface-active disabled:opacity-50"
               >
                 {loading === "disconnect" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}

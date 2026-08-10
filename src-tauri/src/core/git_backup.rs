@@ -1432,7 +1432,14 @@ where
     F: FnOnce() -> Result<T>,
 {
     let _lock = RepoLock::acquire_library_write(operation)?;
-    Ok(f())
+    let outcome = f();
+    if outcome.is_err() {
+        // Same reasoning as `sync_metadata::with_library_write_lock`: re-probe
+        // so a volume pulled mid-operation is noticed now rather than at the
+        // next page load, without turning every git failure into "offline".
+        crate::core::library_availability::poll_availability();
+    }
+    Ok(outcome)
 }
 
 fn run_git(dir: &Path, args: &[&str]) -> Result<String> {
