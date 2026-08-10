@@ -1416,15 +1416,23 @@ fn ensure_gitignore(skills_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Runs `f` while holding the central-repo lock. Used by the user-initiated
-/// backup commands (init/commit/pull/clone/reclone/restore), so we wait out
-/// transient contention with background work instead of failing fast.
-pub(crate) fn with_repo_lock<T, F>(operation: &str, f: F) -> Result<T>
+/// Runs `f` while holding the central-repo lock, refusing while the Library is
+/// offline. Backup operates on the git repository inside the Library: with the
+/// volume gone, a commit would record every skill as deleted and a push would
+/// send that to the remote.
+///
+/// The outer error is the gate refusing (Library offline, or the repo busy);
+/// the inner one is whatever `f` produced, so each caller keeps its own git
+/// error classification.
+pub(crate) fn with_library_write_lock<T, F>(
+    operation: &str,
+    f: F,
+) -> std::result::Result<Result<T>, crate::core::error::AppError>
 where
     F: FnOnce() -> Result<T>,
 {
-    let _lock = RepoLock::acquire_foreground(operation)?;
-    f()
+    let _lock = RepoLock::acquire_library_write(operation)?;
+    Ok(f())
 }
 
 fn run_git(dir: &Path, args: &[&str]) -> Result<String> {

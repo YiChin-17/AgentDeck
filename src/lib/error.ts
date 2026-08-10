@@ -8,6 +8,7 @@ export const ERROR_KINDS = [
   "invalid_input",
   "cancelled",
   "internal",
+  "library_offline",
 ] as const;
 
 export type ErrorKind = (typeof ERROR_KINDS)[number];

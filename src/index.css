@@ -144,8 +144,11 @@
     @apply flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden;
   }
 
+  /* pt-px keeps the 1px selection ring of the first row inside the scroll box.
+     Without it the ring — a box-shadow drawn outside the element — is clipped
+     at the top edge, so a selected first row appears to have no top border. */
   .app-list-scroll {
-    @apply min-h-0 flex-1 overflow-y-auto scrollbar-hide;
+    @apply min-h-0 flex-1 overflow-y-auto pt-px scrollbar-hide;
   }
 
   .app-page-header {

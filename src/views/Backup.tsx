@@ -85,7 +85,9 @@ function formatBytes(bytes: number) {
 
 export function Backup() {
   const { t } = useTranslation();
-  const { managedSkills, refreshManagedSkills, refreshPresets } = useApp();
+  // Backup writes to the git repository inside the Library, so every action
+  // here needs the Library verified first.
+  const { managedSkills, refreshManagedSkills, refreshPresets, libraryOffline } = useApp();
   const [gitStatus, setGitStatus] = useState<GitBackupStatus | null>(null);
   const [remoteInput, setRemoteInput] = useState("");
   const [remoteConfig, setRemoteConfig] = useState("");
@@ -872,7 +874,7 @@ export function Backup() {
                   <button
                     type="button"
                     onClick={() => setSetupOpen(true)}
-                    disabled={!!loading || !remoteConfig}
+                    disabled={!!loading || libraryOffline || !remoteConfig}
                     className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-accent-border bg-accent-dark px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
                   >
                     {loading === "start" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Cloud className="h-3.5 w-3.5" />}
@@ -882,7 +884,7 @@ export function Backup() {
                   <button
                     type="button"
                     onClick={handleBackupNow}
-                    disabled={!!loading || !canBackupNow}
+                    disabled={!!loading || libraryOffline || !canBackupNow}
                     className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-accent-border bg-accent-dark px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
                   >
                     {loading === "sync" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -943,7 +945,7 @@ export function Backup() {
                             <button
                               type="button"
                               onClick={() => handleResolveConflict(conflict.skill_id, "keep_local")}
-                              disabled={!!resolvingConflict || !!loading}
+                              disabled={!!resolvingConflict || !!loading || libraryOffline}
                               className="rounded-lg border border-border-subtle px-2.5 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
                             >
                               {t("backup.conflicts.keepLocal")}
@@ -951,7 +953,7 @@ export function Backup() {
                             <button
                               type="button"
                               onClick={() => handleResolveConflict(conflict.skill_id, "use_remote")}
-                              disabled={!!resolvingConflict || !!loading}
+                              disabled={!!resolvingConflict || !!loading || libraryOffline}
                               className="rounded-lg border border-border-subtle px-2.5 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
                             >
                               {t("backup.conflicts.useRemote")}
@@ -959,7 +961,7 @@ export function Backup() {
                             <button
                               type="button"
                               onClick={() => handleResolveConflict(conflict.skill_id, "keep_both")}
-                              disabled={!!resolvingConflict || !!loading}
+                              disabled={!!resolvingConflict || !!loading || libraryOffline}
                               className="rounded-lg border border-border-subtle px-2.5 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
                             >
                               {t("backup.conflicts.keepBoth")}
@@ -1171,7 +1173,7 @@ export function Backup() {
                     <button
                       type="button"
                       onClick={() => setRestoreVersionTag(version.tag)}
-                      disabled={!!restoringVersionTag}
+                      disabled={!!restoringVersionTag || libraryOffline}
                       className="shrink-0 rounded-lg border border-border-subtle px-2 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
                     >
                       {restoringVersionTag === version.tag

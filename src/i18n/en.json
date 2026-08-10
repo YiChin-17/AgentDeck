@@ -645,6 +645,7 @@
     "repoWarning_config_unreadable": "The central library config file is unreadable or corrupt, so this session fell back to the default location (~/.skills-manager). If your library looks empty, your data is still at the previously configured path — set “Central Repo Path” back to it.",
     "repoWarning_repo_path_invalid": "The configured central repository path is invalid, so this session fell back to the default location (~/.skills-manager). If your library looks empty, re-set “Central Repo Path” to where your data lives.",
     "repoWarning_migration_incomplete": "Moving your central library to the new location couldn’t finish, so this session is using your existing library at its current location — nothing was lost. To complete the move, open Settings and point “Central Repo Path” at an empty, writable folder (tap Edit to see the destination you chose), then restart. Your current library stays where it is until the move succeeds — don’t delete it.",
+    "repoWarning_migration_blocked": "Your previously configured library and the internal application storage both hold application state, so AgentDeck did not merge them — nothing was changed or deleted on either side. Open Settings, confirm which location holds the library you want to keep, and point “Central Repo Path” at it, then restart.",
     "panicDismiss": "Dismiss",
     "gitBackup": "Git Sync",
     "gitBackupDesc": "Back up your skill library to a Git repository for version control and multi-machine sync.",
@@ -786,6 +787,30 @@
     "goToSettings": "Settings",
     "expandAll": "Show all",
     "collapse": "Collapse"
+  },
+  "library": {
+    "offline": {
+      "title": "Library Offline",
+      "description": "AgentDeck cannot reach the Library at {{path}} ({{reason}}). Everything below is the last known state; adding, updating, deleting, syncing, and backup stay unavailable until it reconnects.",
+      "retrying": "Checking…",
+      "reconnected": "Library reconnected.",
+      "retryFailed": "Could not re-check the Library.",
+      "cachedNotice": "Offline — last known state",
+      "actionBlocked": "Unavailable while the Library is offline",
+      "documentUnavailable": "This document lives in the Library, which is not connected right now."
+    },
+    "reason": {
+      "ok": "available",
+      "missing_path": "the folder is not there — the drive may be disconnected",
+      "not_readable": "the folder cannot be read",
+      "not_writable": "the folder is read-only",
+      "identity_mismatch": "that folder is a different Library",
+      "refresh_failed": "the Library was reached but its contents could not be reloaded",
+      "watcher_failed": "the Library was reached but it cannot be monitored for changes"
+    },
+    "status": {
+      "online": "Library available"
+    }
   },
   "addFromLibrary": {
     "title": "Add from Library",

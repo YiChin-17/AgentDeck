@@ -8,6 +8,7 @@ import { getPresetIconOption } from "../lib/presetIcons";
 import type { ManagedSkill, Preset } from "../lib/tauri";
 import { getErrorMessage } from "../lib/error";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { useApp } from "../context/AppContext";
 
 export interface PresetBarProps {
   presets: Preset[];
@@ -29,6 +30,9 @@ export function PresetBar({
   onComplete,
 }: PresetBarProps) {
   const { t } = useTranslation();
+  // Adding or removing a Skill Pack writes to deployment targets, so both stay
+  // unavailable while the Library cannot be verified.
+  const { libraryOffline } = useApp();
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<{ preset: Preset; count: number } | null>(null);
 
@@ -141,7 +145,8 @@ export function PresetBar({
                 <button
                   type="button"
                   onClick={() => handleActivate(preset)}
-                  disabled={busy || s.installed === s.total}
+                  disabled={busy || libraryOffline || s.installed === s.total}
+                  title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
                   className="border-l border-border-subtle px-2 py-0.5 text-[11px] font-medium text-action transition-colors hover:bg-action-bg disabled:cursor-not-allowed disabled:text-faint disabled:opacity-60"
                 >
                   {isAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("presetBar.add")}
@@ -149,7 +154,8 @@ export function PresetBar({
                 <button
                   type="button"
                   onClick={() => setPendingRemoval({ preset, count: s.installed })}
-                  disabled={busy || s.installed === 0}
+                  disabled={busy || libraryOffline || s.installed === 0}
+                  title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
                   className="border-l border-border-subtle px-2 py-0.5 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:text-faint disabled:opacity-60"
                 >
                   {isRemoving ? <Loader2 className="h-3 w-3 animate-spin" /> : t("presetBar.remove")}

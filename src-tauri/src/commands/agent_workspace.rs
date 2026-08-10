@@ -11,8 +11,8 @@ use crate::commands::projects::{
 };
 use crate::core::skill_store::{SkillRecord, SkillStore, SkillTargetRecord};
 use crate::core::{
-    content_hash, error::AppError, installer, project_scanner, scenario_service, sync_engine,
-    tool_adapters, tool_service,
+    content_hash, error::AppError, installer, library_availability, project_scanner,
+    scenario_service, sync_engine, tool_adapters, tool_service,
 };
 
 fn target_path_equals_skill(target_path: &str, skill_path: &str) -> bool {
@@ -389,6 +389,9 @@ fn import_agent_local_skill_to_center(
     adapter: &tool_adapters::ToolAdapter,
     skill_path: &str,
 ) -> Result<(), AppError> {
+    // Importing copies the on-disk skill into the Library. Offline the Library is
+    // unverifiable, so any outcome here would be based on a view we cannot trust.
+    library_availability::ensure_library_online()?;
     let entry = find_scanned_agent_skill(adapter, skill_path)?;
     let skill = &entry.skill;
     let agent = adapter.key.as_str();
@@ -754,6 +757,9 @@ fn update_agent_local_skill_from_center(
     adapter: &tool_adapters::ToolAdapter,
     skill_path: &str,
 ) -> Result<(), AppError> {
+    // Updating an agent copy reads the Library as the source of truth. Offline the Library is
+    // unverifiable, so any outcome here would be based on a view we cannot trust.
+    library_availability::ensure_library_online()?;
     let entry = find_scanned_agent_skill(adapter, skill_path)?;
     ensure_writable_source(&entry)?;
     let skill = &entry.skill;
@@ -799,6 +805,9 @@ fn delete_agent_local_skill(
     adapter: &tool_adapters::ToolAdapter,
     skill_path: &str,
 ) -> Result<(), AppError> {
+    // Deleting an agent copy is a deployment-target mutation. Offline the Library is
+    // unverifiable, so any outcome here would be based on a view we cannot trust.
+    library_availability::ensure_library_online()?;
     let entry = find_scanned_agent_skill(adapter, skill_path)?;
     ensure_writable_source(&entry)?;
     let skill = &entry.skill;
@@ -1014,6 +1023,53 @@ mod tests {
         assert_eq!(entry.skill.relative_path, "shared-tool");
         assert!(doc.content.contains("legacy body"));
         assert!(!doc.content.contains("modern body"));
+    }
+
+    /// Import, pull, and delete all touch either the Library or an agent's
+    /// deployment target, so a direct call must be refused while the Library is
+    /// offline — the UI disabling those buttons does not cover IPC.
+    #[test]
+    fn agent_skill_actions_are_refused_while_offline() {
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, set_availability,
+        };
+
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        central_repo::set_test_base_dir_override(Some(temp.path().join("center")));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        let skill_dir = write_skill(&primary, "modern-tool", "modern body");
+        let adapter = test_adapter(&primary, &[]);
+        let path = skill_dir.to_string_lossy().to_string();
+        let body_before = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
+
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::MissingPath,
+            configured_path: temp.path().join("center"),
+            library_id: None,
+        });
+
+        for err in [
+            import_agent_local_skill_to_center(&store, &adapter, &path).unwrap_err(),
+            update_agent_local_skill_from_center(&store, &adapter, &path).unwrap_err(),
+            delete_agent_local_skill(&store, &adapter, &path).unwrap_err(),
+        ] {
+            assert_eq!(err.kind, ErrorKind::LibraryOffline);
+            assert_eq!(err.message, "missing_path");
+        }
+
+        assert!(store.get_all_skills().unwrap().is_empty(), "no Library rows");
+        assert!(store.get_all_targets().unwrap().is_empty(), "no target rows");
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap(),
+            body_before,
+            "the agent's own copy must be untouched"
+        );
+
+        central_repo::set_test_base_dir_override(None);
     }
 
     #[test]

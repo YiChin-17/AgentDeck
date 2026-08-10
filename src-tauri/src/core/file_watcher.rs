@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -7,6 +8,23 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::Emitter;
 
 use super::{central_repo, skill_store::SkillStore, tool_adapters};
+
+/// Set while the Library is unavailable. The watcher thread keeps running but
+/// does no work: an unmounted volume produces removal events for every file,
+/// and acting on them would look exactly like the user deleting the library.
+static WATCHING_PAUSED: AtomicBool = AtomicBool::new(false);
+
+pub fn pause_watching() {
+    WATCHING_PAUSED.store(true, Ordering::SeqCst);
+}
+
+pub fn resume_watching() {
+    WATCHING_PAUSED.store(false, Ordering::SeqCst);
+}
+
+pub fn watching_paused() -> bool {
+    WATCHING_PAUSED.load(Ordering::SeqCst)
+}
 
 const APP_FS_CHANGED_EVENT: &str = "app-files-changed";
 const WATCH_RESCAN_INTERVAL: Duration = Duration::from_secs(3);
@@ -327,6 +345,16 @@ pub fn start_file_watcher<R: tauri::Runtime>(app: tauri::AppHandle<R>, store: Ar
         };
 
         loop {
+            // Paused means the Library is not verified. Drain whatever the OS
+            // queued (an unmounting volume reports every file as removed) and
+            // act on none of it, then wait for the state to come back.
+            if watching_paused() {
+                while rx.try_recv().is_ok() {}
+                pending_emit = false;
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+
             if last_sync.elapsed() >= WATCH_RESCAN_INTERVAL {
                 let changed = sync_watch_set(&mut watcher, &mut watched, &store);
                 // No path information here, so a mute window classifies as

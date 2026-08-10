@@ -157,7 +157,16 @@ function AgentGroupDnd({ items, sensors, dragLabel, onDragEnd, renderAgentCard }
 export function Settings() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { tools, refreshTools, openHelp, appUpdate, refreshAppUpdate } = useApp();
+  const {
+    tools,
+    refreshTools,
+    openHelp,
+    appUpdate,
+    refreshAppUpdate,
+    libraryAvailability,
+    retryLibrary,
+  } = useApp();
+  const [retryingLibrary, setRetryingLibrary] = useState(false);
   const [togglingTools, setTogglingTools] = useState<Set<string>>(new Set());
   const { theme, setTheme } = useThemeContext();
   const [syncMode, setSyncMode] = useState("symlink");
@@ -456,6 +465,23 @@ export function Settings() {
         .catch(() => {});
     };
   }, []);
+
+  const handleRetryLibrary = async () => {
+    if (retryingLibrary) return;
+    setRetryingLibrary(true);
+    try {
+      const next = await retryLibrary();
+      if (next.state === "online") {
+        toast.success(t("library.offline.reconnected"));
+      } else {
+        toast.error(t(`library.reason.${next.reason}`));
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, t("library.offline.retryFailed")));
+    } finally {
+      setRetryingLibrary(false);
+    }
+  };
 
   const handleOpenRepoInFinder = async () => {
     try {
@@ -1343,6 +1369,38 @@ export function Settings() {
                   ? t("settings.repoPathCustomHint")
                   : t("settings.repoPathDefaultHint")}
               </div>
+              {/* Availability of that exact path, straight from the backend. */}
+              {libraryAvailability && (
+                <div
+                  className={cn(
+                    "flex w-full flex-wrap items-center gap-2 text-[12px]",
+                    libraryAvailability.state === "offline" ? "text-red-600 dark:text-red-300" : "text-muted"
+                  )}
+                >
+                  <span>
+                    {libraryAvailability.state === "offline"
+                      ? t("library.offline.title")
+                      : t("library.status.online")}
+                    {" — "}
+                    {t(`library.reason.${libraryAvailability.reason}`)}
+                  </span>
+                  {libraryAvailability.state === "offline" && (
+                    <button
+                      type="button"
+                      onClick={handleRetryLibrary}
+                      disabled={retryingLibrary}
+                      className={cn(actionButtonClass, retryingLibrary && "cursor-wait opacity-70")}
+                    >
+                      {retryingLibrary ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3 h-3" />
+                      )}
+                      {t("common.retry")}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Sync mode */}

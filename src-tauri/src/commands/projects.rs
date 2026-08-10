@@ -8,7 +8,9 @@ use tauri::State;
 
 use crate::core::skill_store::{ProjectRecord, SkillRecord, SkillStore};
 use crate::core::timing::should_log_first_or_slow;
-use crate::core::{error::AppError, installer, project_scanner, sync_engine, tool_adapters};
+use crate::core::{
+    error::AppError, installer, library_availability, project_scanner, sync_engine, tool_adapters,
+};
 
 #[derive(Serialize, Default)]
 pub struct SyncHealthDto {
@@ -847,6 +849,7 @@ pub async fn import_project_skill_to_center(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        library_availability::ensure_library_online()?;
         ensure_safe_skill_relative_path(&skill_relative_path)?;
 
         let record = store
@@ -959,6 +962,7 @@ pub async fn export_skill_to_project(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        library_availability::ensure_library_online()?;
         let project = store
             .get_project_by_id(&project_id)
             .map_err(AppError::db)?
@@ -1048,6 +1052,7 @@ pub async fn update_project_skill_from_center(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        library_availability::ensure_library_online()?;
         ensure_safe_skill_relative_path(&skill_relative_path)?;
 
         let record = store
@@ -1109,6 +1114,7 @@ pub async fn toggle_project_skill(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        library_availability::ensure_library_online()?;
         ensure_safe_skill_relative_path(&skill_relative_path)?;
 
         let record = store
@@ -1136,6 +1142,7 @@ pub async fn delete_project_skill(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        library_availability::ensure_library_online()?;
         ensure_safe_skill_relative_path(&skill_relative_path)?;
 
         let record = store

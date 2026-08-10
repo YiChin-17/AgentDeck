@@ -39,6 +39,11 @@ interface ArtifactBoardProps {
   libraryLaneLabel?: string;
   /** Cards with an in-flight target mutation. */
   pendingIds?: Set<string>;
+  /**
+   * Blocks lane drags. Dropping a card into another lane deploys or undeploys
+   * it, so the board is read-only whenever those mutations are unavailable.
+   */
+  mutationsDisabled?: boolean;
 }
 
 export function ArtifactBoard({
@@ -48,6 +53,7 @@ export function ArtifactBoard({
   onMoveToLane,
   libraryLaneLabel,
   pendingIds,
+  mutationsDisabled = false,
 }: ArtifactBoardProps) {
   const { t } = useTranslation();
   const boardScrollRef = useRef<HTMLDivElement>(null);
@@ -104,6 +110,7 @@ export function ArtifactBoard({
   }, [selectedLane]);
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (mutationsDisabled) return;
     const lane = event.over?.id as BoardLane | undefined;
     if (!lane) return;
     const card = cards.find((item) => item.id === event.active.id);
@@ -117,7 +124,14 @@ export function ArtifactBoard({
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
       <div
         ref={boardScrollRef}
-        className="flex min-h-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden pb-4"
+        className={cn(
+          "flex min-h-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden pb-4",
+          // A press-and-drag with dragging off falls through to native text
+          // selection, which sweeps across whatever the pointer passes over —
+          // the lanes light up blue as if something were happening. Suppress it
+          // for the whole board, not just the card the drag started on.
+          mutationsDisabled && "select-none"
+        )}
       >
         {BOARD_LANES.map((lane) => (
           <BoardLaneColumn
@@ -129,6 +143,7 @@ export function ArtifactBoard({
             selectedId={selectedId}
             onSelect={onSelect}
             pendingIds={pendingIds}
+            mutationsDisabled={mutationsDisabled}
           />
         ))}
       </div>
@@ -140,6 +155,7 @@ interface BoardLaneColumnProps {
   lane: BoardLane;
   label: string;
   emptyLabel: string;
+  mutationsDisabled: boolean;
   cards: BoardCardModel[];
   selectedId: string | null;
   onSelect: (card: BoardCardModel) => void;
@@ -150,6 +166,7 @@ function BoardLaneColumn({
   lane,
   label,
   emptyLabel,
+  mutationsDisabled,
   cards,
   selectedId,
   onSelect,
@@ -185,6 +202,7 @@ function BoardLaneColumn({
               lane={lane}
               selected={card.id === selectedId}
               pending={pendingIds?.has(card.id) ?? false}
+              draggable={!mutationsDisabled}
               onSelect={onSelect}
             />
           ))
@@ -199,14 +217,15 @@ interface BoardCardProps {
   lane: BoardLane;
   selected: boolean;
   pending: boolean;
+  draggable: boolean;
   onSelect: (card: BoardCardModel) => void;
 }
 
-function BoardCard({ card, lane, selected, pending, onSelect }: BoardCardProps) {
+function BoardCard({ card, lane, selected, pending, draggable, onSelect }: BoardCardProps) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
-    disabled: pending,
+    disabled: pending || !draggable,
   });
   const style = transform
     ? { transform: CSS.Translate.toString(transform), zIndex: 30 }
@@ -227,7 +246,14 @@ function BoardCard({ card, lane, selected, pending, onSelect }: BoardCardProps) 
       // aria-pressed is owned by dnd-kit's drag state, so selection uses aria-current.
       aria-current={selected ? "true" : undefined}
       className={cn(
-        "cursor-grab rounded-lg border bg-surface p-3 text-left shadow-card transition-colors active:cursor-grabbing",
+        "rounded-lg border bg-surface p-3 text-left shadow-card transition-colors",
+        // With dragging off, dnd-kit's listeners are gone and a press-and-drag
+        // falls through to native text selection — the card stays put while the
+        // lane turns blue, which reads as a broken drag rather than a disabled
+        // one. The grab cursor would promise the same thing.
+        draggable
+          ? "cursor-grab active:cursor-grabbing"
+          : "cursor-pointer select-none",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]",
         selected ? "border-action ring-1 ring-action" : "border-border-subtle hover:bg-surface-hover",
         isDragging && "opacity-50",

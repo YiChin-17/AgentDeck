@@ -127,11 +127,10 @@ pub async fn create_preset(
             updated_at: now,
         };
 
-        sync_metadata::with_repo_lock("create scenario", || {
+        sync_metadata::with_library_write_lock("create scenario", || {
             store.insert_scenario(&record)?;
             sync_metadata::write_all_from_db_unlocked(&store)
-        })
-        .map_err(AppError::db)?;
+        })?;
 
         if let Some(previous_id) = previous_active_id.as_deref() {
             unsync_scenario_skills(&store, previous_id)?;
@@ -167,7 +166,7 @@ pub async fn update_preset(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("update scenario", || {
+        sync_metadata::with_library_write_lock("update scenario", || {
             store.update_scenario(&id, &name, description.as_deref(), icon.as_deref())?;
             sync_metadata::write_all_from_db_unlocked(&store)
         })
@@ -198,11 +197,10 @@ pub async fn delete_preset(
             unsync_scenario_skills(&store, &id)?;
         }
 
-        sync_metadata::with_repo_lock("delete scenario", || {
+        sync_metadata::with_library_write_lock("delete scenario", || {
             store.delete_scenario(&id)?;
             sync_metadata::write_all_from_db_unlocked(&store)
-        })
-        .map_err(AppError::db)?;
+        })?;
 
         if was_active {
             let remaining = store.get_all_scenarios().map_err(AppError::db)?;
@@ -274,11 +272,10 @@ pub async fn add_skill_to_preset(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("add skill to scenario", || {
+        sync_metadata::with_library_write_lock("add skill to scenario", || {
             store.add_skill_to_scenario(&preset_id, &skill_id)?;
             sync_metadata::write_all_from_db_unlocked(&store)
-        })
-        .map_err(AppError::db)?;
+        })?;
         // Membership-only edit. We intentionally do NOT sync to disk here,
         // even when this preset happens to be the legacy `active_scenario_id`,
         // because in the post-v1.16 model presets are curation labels, not
@@ -302,11 +299,10 @@ pub async fn remove_skill_from_preset(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("remove skill from scenario", || {
+        sync_metadata::with_library_write_lock("remove skill from scenario", || {
             store.remove_skill_from_scenario(&preset_id, &skill_id)?;
             sync_metadata::write_all_from_db_unlocked(&store)
-        })
-        .map_err(AppError::db)?;
+        })?;
         // Same rationale as add_skill_to_preset: editing preset membership
         // never wipes on-disk skill targets. To remove a skill from a coding
         // agent the caller goes through PresetBar / the tray (or the explicit
@@ -328,7 +324,7 @@ pub async fn reorder_presets(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("reorder scenarios", || {
+        sync_metadata::with_library_write_lock("reorder scenarios", || {
             store.reorder_scenarios(&ids)?;
             sync_metadata::write_all_from_db_unlocked(&store)
         })
@@ -363,7 +359,7 @@ pub async fn reorder_preset_skills(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("reorder scenario skills", || {
+        sync_metadata::with_library_write_lock("reorder scenario skills", || {
             store.reorder_scenario_skills(&preset_id, &skill_ids)?;
             sync_metadata::write_all_from_db_unlocked(&store)
         })

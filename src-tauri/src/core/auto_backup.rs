@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use super::central_repo;
 use super::git_backup;
+use super::library_availability;
 use super::merge;
 use super::repo_lock::RepoLock;
 use super::skill_store::SkillStore;
@@ -201,6 +202,11 @@ pub(crate) fn run_round_blocking(store: &SkillStore) -> Outcome {
     if !is_enabled(store) {
         return Outcome::Skipped("disabled");
     }
+    // An offline Library reads as "every skill was deleted", and committing
+    // that would push the deletion to the backup remote.
+    if !library_availability::availability().is_online() {
+        return Outcome::Skipped("library offline");
+    }
     let skills_dir = central_repo::skills_dir();
     if !skills_dir.join(".git").exists() {
         return Outcome::Skipped("no repo");
@@ -318,6 +324,11 @@ pub(crate) fn run_round_blocking(store: &SkillStore) -> Outcome {
 /// startup round pushes — and never blocks quitting (fail-fast lock).
 pub fn commit_on_exit(store: &SkillStore) {
     if !is_enabled(store) {
+        return;
+    }
+    // Same reason as the periodic round: an unmounted Library would be
+    // committed as a mass deletion.
+    if !library_availability::availability().is_online() {
         return;
     }
     let skills_dir = central_repo::skills_dir();
@@ -470,6 +481,41 @@ mod tests {
 
         // A second round with nothing new is a no-op.
         assert_eq!(run_round_blocking(&env.store), Outcome::UpToDate);
+    }
+
+    /// An unmounted Library looks like every skill was deleted. Committing that
+    /// would push the deletion to the backup remote, so the round must not run.
+    #[test]
+    fn an_offline_library_skips_the_backup_round() {
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, set_availability,
+        };
+
+        let env = test_env();
+        std::fs::write(env.skills_dir.join("new-skill.md"), b"content").unwrap();
+        let head_before = git_out(&env.skills_dir, &["rev-parse", "HEAD"]);
+        let remote_before = git_out(&env.remote, &["rev-parse", "main"]);
+
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::MissingPath,
+            configured_path: env.skills_dir.clone(),
+            library_id: None,
+        });
+        let outcome = run_round_blocking(&env.store);
+        commit_on_exit(&env.store);
+
+        assert_eq!(outcome, Outcome::Skipped("library offline"));
+        assert_eq!(
+            git_out(&env.skills_dir, &["rev-parse", "HEAD"]),
+            head_before,
+            "no commit may be created while the Library is offline"
+        );
+        assert_eq!(
+            git_out(&env.remote, &["rev-parse", "main"]),
+            remote_before,
+            "nothing may be pushed while the Library is offline"
+        );
     }
 
     /// Clone the test remote as a second "device" with its own identity.

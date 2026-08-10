@@ -92,7 +92,7 @@ pub async fn import_existing_skill(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("import existing skill", || {
+        sync_metadata::with_library_write_lock("import existing skill", || {
             let path = PathBuf::from(&source_path);
             let resolved_name = installer::resolve_local_skill_name(&path, name.as_deref())?;
 
@@ -145,7 +145,7 @@ pub async fn import_existing_skill(
 pub async fn import_all_discovered(store: State<'_, Arc<SkillStore>>) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("import all discovered skills", || {
+        sync_metadata::with_library_write_lock("import all discovered skills", || {
             let discovered = store.get_all_discovered()?;
             let groups = scanner::group_discovered(&discovered);
 

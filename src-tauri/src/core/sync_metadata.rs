@@ -95,6 +95,21 @@ where
     f()
 }
 
+/// Same as [`with_repo_lock`], but refuses while the Library is offline and
+/// keeps the `library_offline` error kind intact for the frontend. Every
+/// user-initiated flow that writes Library files or deployment targets uses
+/// this; `with_repo_lock` remains for state that lives on internal storage.
+pub(crate) fn with_library_write_lock<T, F>(
+    operation: &str,
+    f: F,
+) -> std::result::Result<T, crate::core::error::AppError>
+where
+    F: FnOnce() -> Result<T>,
+{
+    let _lock = RepoLock::acquire_library_write(operation)?;
+    f().map_err(crate::core::error::AppError::db)
+}
+
 pub(crate) fn write_all_from_db_unlocked(store: &SkillStore) -> Result<()> {
     ensure_metadata_dirs()?;
     write_schema()?;
@@ -677,6 +692,40 @@ mod tests {
             _tmp: tmp,
             store,
         }
+    }
+
+    /// Preset edits, scan imports, tag writes, and tool toggles all run their
+    /// work inside this lock, so the gate has to refuse before the closure runs
+    /// — Library metadata lives inside `skills_dir()`.
+    #[test]
+    fn library_write_lock_does_not_run_its_work_while_offline() {
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, set_availability,
+        };
+
+        let repo = test_repo();
+        let base = central_repo::skills_dir();
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::NotWritable,
+            configured_path: base,
+            library_id: None,
+        });
+
+        let mut ran = false;
+        let refused = with_library_write_lock("create scenario", || {
+            ran = true;
+            write_all_from_db_unlocked(&repo.store)
+        });
+
+        let err = refused.expect_err("offline must fail closed");
+        assert_eq!(err.kind, crate::core::error::ErrorKind::LibraryOffline);
+        assert_eq!(err.message, "not_writable");
+        assert!(!ran, "the guarded work must not run at all");
+        assert!(
+            !metadata_dir().exists(),
+            "no metadata may be written into an offline Library"
+        );
     }
 
     fn write_skill_dir(name: &str) -> PathBuf {

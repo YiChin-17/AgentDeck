@@ -244,7 +244,8 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   const { agentKey } = useParams<{ agentKey?: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { tools, managedSkills, presets, refreshManagedSkills, refreshTools } = useApp();
+  const { tools, managedSkills, presets, refreshManagedSkills, refreshTools, libraryOffline } =
+    useApp();
 
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");
@@ -664,9 +665,13 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
               e.stopPropagation();
               setPullConfirmSkill(skill);
             }}
-            disabled={localActionKey === pullKey}
+            disabled={localActionKey === pullKey || libraryOffline}
             className={buttonClassName}
-            title={t("globalWorkspace.localSkills.pull")}
+            title={
+              libraryOffline
+                ? t("library.offline.actionBlocked")
+                : t("globalWorkspace.localSkills.pull")
+            }
           >
             {localActionKey === pullKey ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -686,9 +691,13 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
                 setUploadConfirmSkill(skill);
               }
             }}
-            disabled={localActionKey === uploadKey}
+            disabled={localActionKey === uploadKey || libraryOffline}
             className={buttonClassName}
-            title={t("globalWorkspace.localSkills.upload")}
+            title={
+              libraryOffline
+                ? t("library.offline.actionBlocked")
+                : t("globalWorkspace.localSkills.upload")
+            }
           >
             {localActionKey === uploadKey ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -704,8 +713,12 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
               e.stopPropagation();
               void handleRemoveLocalManagedSkill(skill);
             }}
-            disabled={removing}
-            title={t("globalWorkspace.localSkills.removeManaged")}
+            disabled={removing || libraryOffline}
+            title={
+              libraryOffline
+                ? t("library.offline.actionBlocked")
+                : t("globalWorkspace.localSkills.removeManaged")
+            }
             className={cn(buttonClassName, "hover:bg-red-500/10 hover:text-red-500")}
           >
             {removing ? (
@@ -720,8 +733,12 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
               e.stopPropagation();
               setDeleteLocalConfirmSkill(skill);
             }}
-            disabled={localActionKey === deleteKey}
-            title={t("globalWorkspace.localSkills.deleteLocal")}
+            disabled={localActionKey === deleteKey || libraryOffline}
+            title={
+              libraryOffline
+                ? t("library.offline.actionBlocked")
+                : t("globalWorkspace.localSkills.deleteLocal")
+            }
             className={cn(buttonClassName, "hover:bg-red-500/10 hover:text-red-500")}
           >
             {localActionKey === deleteKey ? (
@@ -881,7 +898,9 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
 
             <button
               onClick={() => setAddDialogOpen(true)}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover"
+              disabled={libraryOffline}
+              title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("globalWorkspace.addSkill")}
@@ -983,7 +1002,9 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
           {localSkills.length === 0 && (
             <button
               onClick={() => setAddDialogOpen(true)}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover"
+              disabled={libraryOffline}
+              title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("globalWorkspace.addSkill")}

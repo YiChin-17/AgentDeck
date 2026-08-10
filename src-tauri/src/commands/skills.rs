@@ -14,6 +14,7 @@ use crate::core::{
     git_fetcher,
     install_cancel::InstallCancelRegistry,
     installer,
+    library_availability,
     repo_lock::RepoLock,
     scanner,
     skill_metadata::{self, is_valid_skill_dir},
@@ -225,28 +226,38 @@ pub async fn get_skills_for_preset(
     .await?
 }
 
+pub fn read_managed_skill_document(
+    store: &SkillStore,
+    skill_id: &str,
+) -> Result<SkillDocumentDto, AppError> {
+    let skill = store
+        .get_skill_by_id(skill_id)
+        .map_err(AppError::db)?
+        .ok_or_else(|| AppError::not_found("Skill not found"))?;
+
+    // The database row survives an unplugged volume but the file does not.
+    // Without this the read falls through to "no documentation file found",
+    // which reads as a broken Skill rather than a disconnected Library.
+    library_availability::ensure_library_online()?;
+
+    let (filename, content) = read_skill_document_from_dir(Path::new(&skill.central_path))?;
+
+    Ok(SkillDocumentDto {
+        skill_id: skill_id.to_string(),
+        filename,
+        content,
+        central_path: skill.central_path,
+    })
+}
+
 #[tauri::command]
 pub async fn get_skill_document(
     skill_id: String,
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<SkillDocumentDto, AppError> {
     let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let skill = store
-            .get_skill_by_id(&skill_id)
-            .map_err(AppError::db)?
-            .ok_or_else(|| AppError::not_found("Skill not found"))?;
-
-        let (filename, content) = read_skill_document_from_dir(Path::new(&skill.central_path))?;
-
-        Ok(SkillDocumentDto {
-            skill_id,
-            filename,
-            content,
-            central_path: skill.central_path,
-        })
-    })
-    .await?
+    tauri::async_runtime::spawn_blocking(move || read_managed_skill_document(&store, &skill_id))
+        .await?
 }
 
 #[tauri::command]
@@ -588,6 +599,10 @@ pub fn delete_managed_skills_by_ids(
     store: &SkillStore,
     skill_ids: &[String],
 ) -> Result<BatchDeleteSkillsResult, AppError> {
+    // Deleting reads the Library to remove files and targets. Offline, an absent
+    // Library would look like "everything is already gone" and the deletion
+    // would silently succeed against nothing.
+    library_availability::ensure_library_online()?;
     sync_metadata::with_repo_lock("delete skills", || {
         let mut deleted = 0;
         let mut failed = Vec::new();
@@ -721,7 +736,7 @@ pub async fn install_local(
                 remote_revision: None,
                 update_status: "local_only".to_string(),
             };
-            let _lock = RepoLock::acquire_foreground("install local skill").map_err(AppError::db)?;
+            let _lock = RepoLock::acquire_library_write("install local skill")?;
             let result =
                 installer::install_from_local(&path, name.as_deref()).map_err(AppError::io)?;
             let skill_name = result.name.clone();
@@ -795,7 +810,7 @@ pub async fn install_git(
 
             emit_progress("installing");
             let install_result = (|| -> Result<(String, String), AppError> {
-                let _lock = RepoLock::acquire_foreground("install git skill").map_err(AppError::db)?;
+                let _lock = RepoLock::acquire_library_write("install git skill")?;
                 let skill_dir = resolve_skill_dir(&temp_dir, parsed.subpath.as_deref(), None)?;
                 let revision = git_fetcher::get_head_revision(&temp_dir).map_err(AppError::git)?;
                 let result = installer::install_from_git_dir(&skill_dir, name.as_deref())
@@ -891,7 +906,7 @@ pub async fn install_from_skillssh(
 
             emit_progress("installing");
             let install_result = (|| -> Result<(String, String), AppError> {
-                let _lock = RepoLock::acquire_foreground("install skillssh skill").map_err(AppError::db)?;
+                let _lock = RepoLock::acquire_library_write("install skillssh skill")?;
                 let skill_dir = resolve_skill_dir(&temp_dir, None, Some(&skill_id))?;
                 let revision = git_fetcher::get_head_revision(&temp_dir).map_err(AppError::git)?;
                 let source_ref = format!("{}/{}", source, skill_id);
@@ -1048,8 +1063,7 @@ pub async fn confirm_git_install(
             let skill_dir = resolve_skill_dir(&temp_path, parsed.subpath.as_deref(), None)?;
             let all_dirs = collect_git_skill_dirs(&skill_dir);
             let revision = git_fetcher::get_head_revision(&temp_path).map_err(AppError::git)?;
-            let _lock = RepoLock::acquire_foreground("confirm git install")
-                .map_err(AppError::db)?;
+            let _lock = RepoLock::acquire_library_write("confirm git install")?;
 
             for dir in &all_dirs {
                 let rel_key = skill_rel_key(&skill_dir, dir);
@@ -1474,8 +1488,7 @@ pub async fn relink_local_skill_source(
             .map_err(AppError::db)?;
 
         let result = (|| -> Result<(), AppError> {
-            let _lock = RepoLock::acquire_foreground("relink local skill")
-                .map_err(AppError::db)?;
+            let _lock = RepoLock::acquire_library_write("relink local skill")?;
             let staged_path = staged_path_for(&skill.central_path);
             let install_result = installer::install_from_local_to_destination(
                 &path,
@@ -1535,8 +1548,7 @@ pub async fn detach_local_skill_source(
         }
 
         {
-            let _lock = RepoLock::acquire_foreground("detach local skill")
-                .map_err(AppError::db)?;
+            let _lock = RepoLock::acquire_library_write("detach local skill")?;
             store
                 .update_skill_after_reinstall(
                     &skill.id,
@@ -1686,8 +1698,7 @@ pub fn update_git_skill_internal(
             crate::core::content_hash::hash_directory(&skill_dir).map_err(AppError::io)?;
         let content_changed = skill.content_hash.as_deref() != Some(new_hash.as_str());
         let source_subpath = git_fetcher::relative_subpath(&temp_dir, &skill_dir);
-        let _lock = RepoLock::acquire_foreground("update installed skill")
-            .map_err(AppError::db)?;
+        let _lock = RepoLock::acquire_library_write("update installed skill")?;
 
         if content_changed {
             let staged_path = staged_path_for(&skill.central_path);
@@ -1795,8 +1806,7 @@ pub fn reimport_local_skill_internal(
         .map_err(AppError::db)?;
 
     let result = (|| -> Result<(), AppError> {
-        let _lock = RepoLock::acquire_foreground("reimport local skill")
-            .map_err(AppError::db)?;
+        let _lock = RepoLock::acquire_library_write("reimport local skill")?;
         let staged_path = staged_path_for(&skill.central_path);
         let install_result =
             installer::install_from_local_to_destination(&path, Some(&skill.name), &staged_path)
@@ -2339,11 +2349,10 @@ pub async fn set_skill_tags(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("set skill tags", || {
+        sync_metadata::with_library_write_lock("set skill tags", || {
             store.set_tags_for_skill(&skill_id, &tags)?;
             sync_metadata::ensure_skill_metadata_unlocked(&store, &skill_id)
         })
-        .map_err(AppError::db)
     })
     .await?
 }
@@ -2365,14 +2374,13 @@ pub async fn rename_tag(
         if new_name == old_name {
             return Ok(());
         }
-        sync_metadata::with_repo_lock("rename tag", || {
+        sync_metadata::with_library_write_lock("rename tag", || {
             let affected = store.rename_tag(&old_name, &new_name)?;
             for skill_id in &affected {
                 sync_metadata::ensure_skill_metadata_unlocked(&store, skill_id)?;
             }
             Ok(())
         })
-        .map_err(AppError::db)
     })
     .await?
 }
@@ -2382,14 +2390,13 @@ pub async fn rename_tag(
 pub async fn delete_tag(name: String, store: State<'_, Arc<SkillStore>>) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        sync_metadata::with_repo_lock("delete tag", || {
+        sync_metadata::with_library_write_lock("delete tag", || {
             let affected = store.delete_tag(&name)?;
             for skill_id in &affected {
                 sync_metadata::ensure_skill_metadata_unlocked(&store, skill_id)?;
             }
             Ok(())
         })
-        .map_err(AppError::db)
     })
     .await?
 }
@@ -2470,8 +2477,7 @@ pub async fn batch_import_folder(
             }
 
             let install_result = (|| -> Result<String, AppError> {
-                let _lock = RepoLock::acquire_foreground("batch import skill")
-                    .map_err(AppError::db)?;
+                let _lock = RepoLock::acquire_library_write("batch import skill")?;
                 let result =
                     installer::install_from_local(dir, Some(&name)).map_err(AppError::io)?;
                 let metadata = InstallSourceMetadata {
@@ -2517,14 +2523,31 @@ mod tests {
     use std::fs;
     use tempfile::{tempdir, TempDir};
 
+    use crate::core::library_availability::{LibraryAvailability, LibraryReason, LibraryState};
+
     struct TestRepo {
         _lock: std::sync::MutexGuard<'static, ()>,
         _tmp: TempDir,
         store: SkillStore,
+        base: PathBuf,
+        restore_availability: LibraryAvailability,
+    }
+
+    impl TestRepo {
+        /// Publish an offline verdict for this repo's Library.
+        fn go_offline(&self, reason: LibraryReason) {
+            library_availability::set_availability(LibraryAvailability {
+                state: LibraryState::Offline,
+                reason,
+                configured_path: self.base.clone(),
+                library_id: None,
+            });
+        }
     }
 
     impl Drop for TestRepo {
         fn drop(&mut self) {
+            library_availability::set_availability(self.restore_availability.clone());
             central_repo::set_test_base_dir_override(None);
         }
     }
@@ -2536,10 +2559,21 @@ mod tests {
         central_repo::set_test_base_dir_override(Some(base.clone()));
         fs::create_dir_all(central_repo::skills_dir()).unwrap();
         let store = SkillStore::new(&base.join("test.db")).unwrap();
+        let restore_availability = library_availability::availability();
+        // Mutating flows now go through the availability gate, so a test repo
+        // starts online; offline cases opt in via `go_offline`.
+        library_availability::set_availability(LibraryAvailability {
+            state: LibraryState::Online,
+            reason: LibraryReason::Ok,
+            configured_path: base.clone(),
+            library_id: Some("test-library".to_string()),
+        });
         TestRepo {
             _lock: lock,
             _tmp: tmp,
             store,
+            base,
+            restore_availability,
         }
     }
 
@@ -2572,6 +2606,108 @@ mod tests {
             last_checked_at: None,
             last_check_error: None,
         }
+    }
+
+    /// Fingerprint of the Library tree, used to prove a refused call wrote
+    /// nothing.
+    fn skills_tree_hash() -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let root = central_repo::skills_dir();
+        let mut entries: Vec<(String, Vec<u8>)> = walkdir::WalkDir::new(&root)
+            .sort_by_file_name()
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .map(|e| {
+                let rel = e
+                    .path()
+                    .strip_prefix(&root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                (rel, fs::read(e.path()).unwrap_or_default())
+            })
+            .collect();
+        entries.sort();
+        let mut hasher = Sha256::new();
+        for (rel, bytes) in entries {
+            hasher.update(rel.as_bytes());
+            hasher.update(&bytes);
+        }
+        hasher.finalize().to_vec()
+    }
+
+    #[test]
+    fn opening_a_document_while_offline_reports_offline_not_a_missing_file() {
+        let repo = test_repo();
+        let skill_dir = write_skill_dir("skill-one");
+        repo.store
+            .insert_skill(&sample_skill("skill-1", "skill-one", &skill_dir))
+            .unwrap();
+
+        let online = read_managed_skill_document(&repo.store, "skill-1")
+            .expect("an online Library serves the document");
+        assert_eq!(online.filename, "SKILL.md");
+
+        repo.go_offline(LibraryReason::MissingPath);
+        let err = read_managed_skill_document(&repo.store, "skill-1")
+            .expect_err("an offline Library cannot serve documents");
+
+        // `not_found` would tell the user their Skill is broken; the Library is
+        // simply not connected, and the reason has to say which.
+        assert_eq!(err.kind, crate::core::error::ErrorKind::LibraryOffline);
+        assert_eq!(err.message, "missing_path");
+    }
+
+    #[test]
+    fn delete_is_refused_while_offline_and_changes_nothing() {
+        let repo = test_repo();
+        let skill_dir = write_skill_dir("skill-one");
+        repo.store
+            .insert_skill(&sample_skill("skill-1", "skill-one", &skill_dir))
+            .unwrap();
+        let target_dir = repo._tmp.path().join("target-skill-one");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("SKILL.md"), "# target").unwrap();
+        repo.store
+            .insert_target(&SkillTargetRecord {
+                id: "target-1".to_string(),
+                skill_id: "skill-1".to_string(),
+                tool: "cursor".to_string(),
+                target_path: target_dir.to_string_lossy().to_string(),
+                mode: "symlink".to_string(),
+                status: "ok".to_string(),
+                synced_at: Some(1),
+                last_error: None,
+                source_hash: None,
+            })
+            .unwrap();
+        let before = skills_tree_hash();
+        let audit_before = repo.store.list_audit(Some(1000)).unwrap().len();
+
+        repo.go_offline(LibraryReason::MissingPath);
+        let err = delete_managed_skills_by_ids(&repo.store, &["skill-1".to_string()])
+            .expect_err("offline delete must fail closed");
+
+        assert_eq!(err.kind, crate::core::error::ErrorKind::LibraryOffline);
+        assert_eq!(err.message, "missing_path");
+        assert_eq!(skills_tree_hash(), before, "Library files must be untouched");
+        assert!(skill_dir.exists());
+        assert!(target_dir.join("SKILL.md").exists(), "targets are untouched");
+        assert!(
+            repo.store.get_skill_by_id("skill-1").unwrap().is_some(),
+            "the database row must survive a refused delete"
+        );
+        assert_eq!(
+            repo.store.get_targets_for_skill("skill-1").unwrap().len(),
+            1,
+            "target rows must survive a refused delete"
+        );
+        assert_eq!(
+            repo.store.list_audit(Some(1000)).unwrap().len(),
+            audit_before,
+            "a refused delete must not write an audit entry"
+        );
     }
 
     #[test]

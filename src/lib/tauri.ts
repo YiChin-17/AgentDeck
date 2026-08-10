@@ -429,6 +429,45 @@ export const getCentralRepoWarnings = () =>
 export const setCentralRepoPath = (path?: string | null) =>
   invoke<string>("set_central_repo_path", { path: path ?? null });
 
+/** Stable reason codes from the Rust `LibraryReason` enum. */
+export type LibraryReason =
+  | "ok"
+  | "missing_path"
+  | "not_readable"
+  | "not_writable"
+  | "identity_mismatch"
+  | "refresh_failed"
+  | "watcher_failed";
+
+/**
+ * Whether the configured Library is reachable. The backend is the only source
+ * of this verdict — never derive it from the configured path on the client.
+ */
+export interface LibraryAvailability {
+  state: "online" | "offline";
+  reason: LibraryReason;
+  configured_path: string;
+  library_id: string | null;
+}
+
+export const getLibraryAvailability = () =>
+  invoke<LibraryAvailability>("get_library_availability");
+
+/**
+ * Re-verify a Library still believed to be online, so an unplugged volume is
+ * noticed without waiting for the next mutation. Never returns to online on its
+ * own — reconnecting stays with {@link retryLibraryAvailability}.
+ */
+export const pollLibraryAvailability = () =>
+  invoke<LibraryAvailability>("poll_library_availability");
+
+/**
+ * Re-verify the configured Library. Returns online only when the identity
+ * matches and metadata refresh plus watcher restart both succeed.
+ */
+export const retryLibraryAvailability = () =>
+  invoke<LibraryAvailability>("retry_library_availability");
+
 export const appExit = () => invoke<void>("app_exit");
 
 export const hideToTray = () => invoke<void>("hide_to_tray");

@@ -21,6 +21,7 @@ import {
   type SkillToolToggle,
   type ToolInfo,
 } from "../lib/tauri";
+import { isAppError } from "../lib/error";
 import { SkillSourceDiffViewer } from "./SkillSourceDiffViewer";
 import { DetailSheet } from "./DetailSheet";
 import { SkillMarkdown } from "./SkillMarkdown";
@@ -96,6 +97,9 @@ function SkillDetailPanelContent({
 }) {
   const { t } = useTranslation();
   const [doc, setDoc] = useState<SkillDocument | null>(null);
+  /** The document could not be read because the Library is not connected —
+   *  a different situation from a Skill that genuinely has no documentation. */
+  const [docOffline, setDocOffline] = useState(false);
   const [sourceDoc, setSourceDoc] = useState<SourceSkillDocument | null>(null);
   const [sourceDiff, setSourceDiff] = useState<SkillSourceDiff | null>(null);
   const [sourceDiffFailed, setSourceDiffFailed] = useState(false);
@@ -129,11 +133,13 @@ function SkillDetailPanelContent({
       .then((nextDoc) => {
         if (requestId === localRequestIdRef.current) {
           setDoc(nextDoc);
+          setDocOffline(false);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (requestId === localRequestIdRef.current) {
           setDoc(null);
+          setDocOffline(isAppError(error) && error.kind === "library_offline");
         }
       })
       .finally(() => {
@@ -381,7 +387,9 @@ function SkillDetailPanelContent({
       ) : activeDoc ? (
         <SkillMarkdown content={activeDoc.content} />
       ) : (
-        <div className="mt-12 text-center text-[13px] text-muted">{t("common.documentMissing")}</div>
+        <div className="mt-12 text-center text-[13px] text-muted">
+          {docOffline ? t("library.offline.documentUnavailable") : t("common.documentMissing")}
+        </div>
       )}
     </DetailSheet>
   );

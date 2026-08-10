@@ -169,7 +169,15 @@ export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { projects, presets, managedSkills, refreshManagedSkills, refreshPresets, refreshProjects } = useApp();
+  const {
+    projects,
+    presets,
+    managedSkills,
+    refreshManagedSkills,
+    refreshPresets,
+    refreshProjects,
+    libraryOffline,
+  } = useApp();
   const [skills, setSkills] = useState<ProjectSkill[]>([]);
   const [projectAgentTargets, setProjectAgentTargets] = useState<ProjectAgentTarget[]>([]);
   const [selectedExportAgents, setSelectedExportAgents] = useState<string[]>([]);
@@ -1151,6 +1159,8 @@ export function ProjectDetail() {
 
       {isMultiSelect && (
         <MultiSelectToolbar
+          mutationsDisabled={libraryOffline}
+          mutationsDisabledTitle={t("library.offline.actionBlocked")}
           selectedCount={selectedIds.size}
           isAllSelected={isAllSelected}
           anyDisabled={anyDisabled}
@@ -1218,6 +1228,7 @@ export function ProjectDetail() {
           onMoveToLane={handleBoardMove}
           libraryLaneLabel={t("board.lanes.undeployed")}
           pendingIds={boardPendingIds}
+          mutationsDisabled={libraryOffline}
         />
       ) : (
         <div
@@ -1341,7 +1352,7 @@ export function ProjectDetail() {
                         {canUpdateCenter && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleUpdateCenter(skill); }}
-                            disabled={isUpdatingCenter || isUpdatingProject}
+                            disabled={isUpdatingCenter || isUpdatingProject || libraryOffline}
                             className="rounded px-2 py-1 text-[13px] font-medium text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
                             title={t("project.updateCenter")}
                           >
@@ -1355,7 +1366,7 @@ export function ProjectDetail() {
                         {canUpdateProject && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleUpdateProject(skill); }}
-                            disabled={isUpdatingCenter || isUpdatingProject}
+                            disabled={isUpdatingCenter || isUpdatingProject || libraryOffline}
                             className="rounded px-2 py-1 text-[13px] font-medium text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
                             title={
                               skill.status === "project_newer"
@@ -1495,7 +1506,7 @@ export function ProjectDetail() {
                       {canUpdateCenter && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleUpdateCenter(skill); }}
-                          disabled={isUpdatingCenter || isUpdatingProject}
+                          disabled={isUpdatingCenter || isUpdatingProject || libraryOffline}
                           className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
                           title={t("project.updateCenter")}
                         >
@@ -1509,7 +1520,7 @@ export function ProjectDetail() {
                       {canUpdateProject && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleUpdateProject(skill); }}
-                          disabled={isUpdatingCenter || isUpdatingProject}
+                          disabled={isUpdatingCenter || isUpdatingProject || libraryOffline}
                           className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
                           title={
                             skill.status === "project_newer"

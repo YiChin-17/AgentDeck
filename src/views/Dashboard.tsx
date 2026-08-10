@@ -7,7 +7,7 @@ import { useApp } from "../context/AppContext";
 export function Dashboard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { tools, projects, managedSkills, openSkillDetailById } = useApp();
+  const { tools, projects, managedSkills, openSkillDetailById, libraryOffline } = useApp();
 
   const enabledAgents = useMemo(
     () => tools.filter((tool) => tool.installed && tool.enabled),
@@ -95,16 +95,23 @@ export function Dashboard() {
 
       {/* Actions */}
       <div className="flex gap-3">
+        {/* Both routes lead only to install entry points that are themselves
+            disabled while offline; sending the user there to find nothing works
+            reads as a broken page. */}
         <button
           onClick={() => navigate("/install?tab=local")}
-          className="app-button-primary flex-1"
+          disabled={libraryOffline}
+          title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
+          className="app-button-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Download className="w-4 h-4" />
           {t("dashboard.scanImport")}
         </button>
         <button
           onClick={() => navigate("/install")}
-          className="app-button-secondary flex-1"
+          disabled={libraryOffline}
+          title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
+          className="app-button-secondary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="w-4 h-4 text-tertiary" />
           {t("dashboard.installNew")}

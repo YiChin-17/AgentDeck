@@ -616,7 +616,8 @@ fn check_updates_from_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 fn open_skills_folder_from_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let repo_path = core::central_repo::base_dir();
+        // The tray item opens the Library, which may sit on an external volume.
+        let repo_path = core::central_repo::library_base_dir();
 
         #[cfg(target_os = "macos")]
         let mut cmd = std::process::Command::new("open");
@@ -1032,6 +1033,9 @@ pub fn run() {
             commands::settings::get_central_repo_path,
             commands::settings::get_central_repo_path_override,
             commands::settings::get_central_repo_warnings,
+            commands::settings::get_library_availability,
+            commands::settings::poll_library_availability,
+            commands::settings::retry_library_availability,
             commands::settings::set_central_repo_path,
             commands::settings::open_central_repo_folder,
             commands::settings::check_app_update,

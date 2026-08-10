@@ -114,10 +114,10 @@ pub async fn git_backup_init(store: State<'_, Arc<SkillStore>>) -> Result<(), Ap
     let store = store.inner().clone();
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("git init", || {
+        git_backup::with_library_write_lock("git init", || {
             sync_metadata::write_all_from_db_unlocked(&store)?;
             git_backup::init_repo_unlocked(&skills_dir, &effective_device_name(&store))
-        })
+        })?
         .map_err(AppError::git)
     })
     .await?
@@ -351,11 +351,11 @@ pub async fn git_backup_commit(
     let store = store.inner().clone();
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("git commit", || {
+        git_backup::with_library_write_lock("git commit", || {
             apply_device_identity(&store, &skills_dir);
             sync_metadata::write_all_from_db_unlocked(&store)?;
             git_backup::commit_all_unlocked(&skills_dir, &message)
-        })
+        })?
         .map_err(AppError::git)
     })
     .await?
@@ -384,7 +384,7 @@ pub async fn git_backup_pull(
     sync_engine_pref(&store);
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("git pull", || {
+        git_backup::with_library_write_lock("git pull", || {
             // Merge commits must carry this device's identity too.
             apply_device_identity(&store, &skills_dir);
             // Object merge by default since 3d-β; merge_engine=system is the
@@ -404,7 +404,7 @@ pub async fn git_backup_pull(
                     .ok(),
             );
             Ok(summary)
-        })
+        })?
         .map_err(classify_git_chain)
     })
     .await?
@@ -436,7 +436,7 @@ pub async fn git_backup_sync(
     sync_engine_pref(&store);
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("git sync", || run_sync_blocking(&store, &skills_dir, &message))
+        git_backup::with_library_write_lock("git sync", || run_sync_blocking(&store, &skills_dir, &message))?
             .map_err(classify_git_chain)
     })
     .await?
@@ -557,7 +557,7 @@ pub async fn git_backup_resolve_conflict(
     let store = store.inner().clone();
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("resolve conflict", || {
+        git_backup::with_library_write_lock("resolve conflict", || {
             apply_device_identity(&store, &skills_dir);
             let safety_tag = merge::resolve::resolve_conflict_unlocked(
                 &store, &skills_dir, &skill_id, action,
@@ -570,7 +570,7 @@ pub async fn git_backup_resolve_conflict(
                     .ok(),
             );
             Ok(safety_tag)
-        })
+        })?
         .map_err(classify_git_chain)
     })
     .await?
@@ -587,11 +587,11 @@ pub async fn git_backup_clone(
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
         let effective = sanitize_url_to_keychain(url.trim());
-        git_backup::with_repo_lock("git clone", || {
+        git_backup::with_library_write_lock("git clone", || {
             git_backup::clone_into_unlocked(&skills_dir, &effective)?;
             apply_device_identity(&store, &skills_dir);
             reconcile_skills_index_unlocked(&store)
-        })
+        })?
         .map_err(classify_git_chain)
     })
     .await?
@@ -611,11 +611,11 @@ pub async fn git_backup_reclone(
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
         let effective = sanitize_url_to_keychain(url.trim());
-        git_backup::with_repo_lock("git reclone", || {
+        git_backup::with_library_write_lock("git reclone", || {
             git_backup::reclone_from_remote_unlocked(&skills_dir, &effective)?;
             apply_device_identity(&store, &skills_dir);
             reconcile_skills_index_unlocked(&store)
-        })
+        })?
         .map_err(classify_git_chain)
     })
     .await?
@@ -657,14 +657,14 @@ pub async fn git_backup_restore_version(
     let store = store.inner().clone();
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("git restore snapshot", || {
+        git_backup::with_library_write_lock("git restore snapshot", || {
             // The safety-point and restore commits are made by this device.
             apply_device_identity(&store, &skills_dir);
             let safety_tag = git_backup::restore_snapshot_version_unlocked(&skills_dir, &tag)?;
             reconcile_skills_index_unlocked(&store)?;
             Ok(safety_tag)
-        })
-        .map_err(AppError::git)
+        })?
+        .map_err(classify_git_chain)
     })
     .await?
 }
@@ -720,16 +720,19 @@ pub async fn git_backup_migrate_credentials(
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<Option<String>, AppError> {
     let store = store.inner().clone();
-    tokio::task::spawn_blocking(move || migrate_embedded_credentials(&store).map_err(AppError::git))
+    tokio::task::spawn_blocking(move || migrate_embedded_credentials(&store))
         .await?
 }
 
-pub fn migrate_embedded_credentials(store: &SkillStore) -> anyhow::Result<Option<String>> {
+/// Rewrites `.git/config` inside the Library, so it needs the Library online.
+/// Offline it reports that and the next launch retries.
+pub fn migrate_embedded_credentials(store: &SkillStore) -> Result<Option<String>, AppError> {
     sync_engine_pref(store);
     let skills_dir = central_repo::skills_dir();
-    git_backup::with_repo_lock("git credential migration", || {
+    git_backup::with_library_write_lock("git credential migration", || {
         migrate_embedded_credentials_unlocked(store, &skills_dir)
-    })
+    })?
+    .map_err(AppError::git)
 }
 
 fn migrate_embedded_credentials_unlocked(

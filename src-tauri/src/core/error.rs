@@ -22,6 +22,10 @@ pub enum ErrorKind {
     InvalidInput,
     Cancelled,
     Internal,
+    /// The configured Library is offline. Distinct from `Io` so the frontend can
+    /// show the offline state instead of a generic failure, and so nothing has
+    /// to infer it from a path string.
+    LibraryOffline,
 }
 
 impl fmt::Display for AppError {
@@ -42,6 +46,15 @@ impl AppError {
         Self {
             kind: ErrorKind::InvalidInput,
             message: msg.into(),
+        }
+    }
+
+    /// The Library is offline, so a protected operation refused to run. The
+    /// message carries the stable reason code for the frontend to localize.
+    pub fn library_offline(reason: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::LibraryOffline,
+            message: reason.into(),
         }
     }
 

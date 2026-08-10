@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { StatusBanner } from "./StatusBanner";
+import { LibraryOfflineBanner } from "./LibraryOfflineBanner";
 import { CommandPalette } from "./CommandPalette";
 import { useApp } from "../context/AppContext";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,7 @@ import { useDragWindow } from "../hooks/useDragWindow";
 
 export function Layout() {
   const { t } = useTranslation();
-  const { appError, refreshAppData } = useApp();
+  const { appError, refreshAppData, refreshLibraryAvailability } = useApp();
   const onDrag = useDragWindow();
   const navigate = useNavigate();
   const location = useLocation();
@@ -17,6 +18,14 @@ export function Layout() {
   // every other route keeps the centred reading column.
   const isBoardRoute =
     location.pathname === "/my-skills" || location.pathname.startsWith("/project/");
+
+  // Re-verify the Library on every page the user opens. Nothing else notices an
+  // unplugged volume — a vanished root stops emitting watcher events — so
+  // without this the banner never appears and every mutation control on the
+  // page stays enabled until something fails.
+  useEffect(() => {
+    void refreshLibraryAvailability();
+  }, [location.pathname, refreshLibraryAvailability]);
 
   // Cmd+, to open Settings
   useEffect(() => {
@@ -61,6 +70,7 @@ export function Layout() {
                 : "mx-auto flex min-h-full max-w-[1200px] flex-col gap-4"
             }
           >
+            <LibraryOfflineBanner />
             {appError ? (
               <StatusBanner
                 compact

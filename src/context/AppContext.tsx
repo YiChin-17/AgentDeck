@@ -1,7 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { AppUpdateInfo, ManagedSkill, Project, Preset, ToolInfo } from "../lib/tauri";
+import type {
+  AppUpdateInfo,
+  LibraryAvailability,
+  ManagedSkill,
+  Project,
+  Preset,
+  ToolInfo,
+} from "../lib/tauri";
 import * as api from "../lib/tauri";
 import i18n from "../i18n";
 import { applyTextSize } from "../lib/textScale";
@@ -18,6 +25,17 @@ interface AppState {
   projects: Project[];
   loading: boolean;
   appError: string | null;
+  /**
+   * Whether the configured Library is reachable, as reported by the backend.
+   * `null` until the first read completes. Never derive this from the
+   * configured path — only the backend can tell one volume from another.
+   */
+  libraryAvailability: LibraryAvailability | null;
+  /** Convenience for gating mutation controls; false while still loading. */
+  libraryOffline: boolean;
+  refreshLibraryAvailability: () => Promise<void>;
+  /** Re-verify the Library. Resolves to the resulting state. */
+  retryLibrary: () => Promise<LibraryAvailability>;
   helpOpen: boolean;
   detailSkillId: string | null;
   /** Result of the last app-version check. Notification only: installing an
@@ -63,6 +81,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [detailSkillId, setDetailSkillId] = useState<string | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null);
+  const [libraryAvailability, setLibraryAvailability] = useState<LibraryAvailability | null>(null);
   const autoCheckInFlightRef = useRef(false);
   const appUpdateCheckedRef = useRef(false);
   const lastUpdateNotificationRef = useRef<string | null>(null);
@@ -141,11 +160,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshProjects();
   }, [setTranslatedError, refreshProjects]);
 
+  const refreshLibraryAvailability = useCallback(async () => {
+    try {
+      // Poll rather than read: an unmounted volume produces no watcher events,
+      // so without a fresh probe the UI keeps showing a Library that is gone
+      // and leaves its mutation controls enabled. The poll only ever moves
+      // online → offline; reconnecting stays with Retry.
+      setLibraryAvailability(await api.pollLibraryAvailability());
+    } catch {
+      // The command itself failing tells us nothing about the Library, so keep
+      // the last known verdict rather than inventing one.
+    }
+  }, []);
+
+  const retryLibrary = useCallback(async () => {
+    const next = await api.retryLibraryAvailability();
+    setLibraryAvailability(next);
+    if (next.state === "online") {
+      // Cached inventory was last-known while offline; reload it now that the
+      // Library is verified again.
+      await Promise.all([refreshPresets(), refreshTools(), refreshManagedSkills(), refreshProjects()]);
+    }
+    return next;
+  }, [refreshManagedSkills, refreshProjects, refreshPresets, refreshTools]);
+
   const refreshAppData = useCallback(async () => {
     setLoading(true);
-    await Promise.all([refreshPresets(), refreshTools(), refreshManagedSkills(), refreshProjects()]);
+    await Promise.all([
+      refreshLibraryAvailability(),
+      refreshPresets(),
+      refreshTools(),
+      refreshManagedSkills(),
+      refreshProjects(),
+    ]);
     setLoading(false);
-  }, [refreshManagedSkills, refreshProjects, refreshPresets, refreshTools]);
+  }, [
+    refreshLibraryAvailability,
+    refreshManagedSkills,
+    refreshProjects,
+    refreshPresets,
+    refreshTools,
+  ]);
 
   const setViewedPresetId = useCallback((id: string) => {
     setViewedPresetIdState(id);
@@ -437,6 +492,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         projects,
         loading,
         appError,
+        libraryAvailability,
+        libraryOffline: libraryAvailability?.state === "offline",
+        refreshLibraryAvailability,
+        retryLibrary,
         helpOpen,
         detailSkillId,
         appUpdate,

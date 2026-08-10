@@ -4,6 +4,7 @@ use tauri::{AppHandle, State};
 
 use crate::core::{
     error::AppError,
+    library_availability,
     scenario_service,
     skill_store::SkillStore,
     sync_engine, sync_metadata, tool_adapters,
@@ -50,6 +51,7 @@ pub async fn sync_skill_to_tool(
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let outcome = (|| -> Result<(), AppError> {
+            library_availability::ensure_library_online()?;
             sync_skill_to_tool_internal(&store, &skill_id, &tool)?;
 
             if let Ok(Some(active_id)) = store.get_active_scenario_id() {
@@ -93,6 +95,7 @@ pub async fn unsync_skill_from_tool(
     let store = store.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let outcome = (|| -> Result<(), AppError> {
+            library_availability::ensure_library_online()?;
             let targets = store
                 .get_targets_for_skill(&skill_id)
                 .map_err(AppError::db)?;
@@ -255,11 +258,10 @@ pub async fn set_skill_tool_toggle(
             }
         }
 
-        sync_metadata::with_repo_lock("set skill tool toggle", || {
+        sync_metadata::with_library_write_lock("set skill tool toggle", || {
             store.set_scenario_skill_tool_enabled(&preset_id, &skill_id, &tool, enabled)?;
             sync_metadata::write_all_from_db_unlocked(&store)
-        })
-        .map_err(AppError::db)?;
+        })?;
 
         let is_active = store
             .get_active_scenario_id()

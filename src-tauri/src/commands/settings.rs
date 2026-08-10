@@ -3,7 +3,12 @@ use std::process::Command;
 use std::sync::Arc;
 use tauri::{Manager, State};
 
-use crate::core::{central_repo, error::AppError, log_sanitize, skill_store::SkillStore, skillssh_api};
+use anyhow::Context as _;
+
+use crate::core::{
+    central_repo, error::AppError, library_availability, log_sanitize,
+    skill_store::SkillStore, skillssh_api, sync_metadata,
+};
 
 #[derive(serde::Serialize)]
 pub struct AppUpdateInfo {
@@ -85,14 +90,73 @@ pub async fn set_settings(
     Ok(())
 }
 
+/// The Library root the user configured, not the internal application-state
+/// base — those are separate since the Library may live on an external volume.
 #[tauri::command]
 pub fn get_central_repo_path() -> String {
-    central_repo::base_dir().to_string_lossy().to_string()
+    central_repo::library_base_dir().to_string_lossy().to_string()
 }
 
 #[tauri::command]
 pub fn get_central_repo_path_override() -> Option<String> {
     central_repo::configured_base_dir().map(|path| path.to_string_lossy().to_string())
+}
+
+/// Current Library availability. The frontend reads state from this command
+/// rather than inferring it from the configured path.
+#[tauri::command]
+pub fn get_library_availability() -> library_availability::LibraryAvailabilityDto {
+    library_availability::availability_dto()
+}
+
+/// Re-verify a Library that is still believed to be online, so the UI notices a
+/// volume that was unplugged since the last check. Never restores online state
+/// — that stays with Retry.
+#[tauri::command]
+pub fn poll_library_availability() -> library_availability::LibraryAvailabilityDto {
+    library_availability::poll_availability().to_dto()
+}
+
+/// The real reconnect work behind Retry. Both steps must succeed before the
+/// Library is treated as usable again.
+struct RuntimeReconnect {
+    store: Arc<SkillStore>,
+}
+
+impl library_availability::ReconnectSteps for RuntimeReconnect {
+    fn refresh_metadata(&self) -> anyhow::Result<()> {
+        if sync_metadata::metadata_exists() {
+            sync_metadata::reindex_from_metadata(&self.store)?;
+        }
+        Ok(())
+    }
+
+    fn restart_watcher(&self) -> anyhow::Result<()> {
+        // The watcher thread keeps running while paused and picks the Library up
+        // again on its next rescan, so a restart only needs the skills root to be
+        // listable. Unpausing happens when the online verdict is published.
+        let skills = central_repo::skills_dir();
+        std::fs::read_dir(&skills)
+            .with_context(|| format!("cannot watch {}", skills.display()))?;
+        Ok(())
+    }
+}
+
+/// Re-verify the configured Library and restore service only if every step
+/// succeeds. A failure leaves the app offline with a specific reason.
+#[tauri::command]
+pub async fn retry_library_availability(
+    store: State<'_, Arc<SkillStore>>,
+) -> Result<library_availability::LibraryAvailabilityDto, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let steps = RuntimeReconnect { store };
+        let root = central_repo::library_base_dir();
+        let expected = central_repo::configured_library_id();
+        library_availability::retry_library(&root, expected.as_deref(), &steps).to_dto()
+    })
+    .await
+    .map_err(AppError::from)
 }
 
 /// Warning codes recorded while resolving the central repository at startup
@@ -116,7 +180,7 @@ pub async fn set_central_repo_path(path: Option<String>) -> Result<String, AppEr
 #[tauri::command]
 pub async fn open_central_repo_folder() -> Result<(), AppError> {
     tauri::async_runtime::spawn_blocking(|| {
-        let repo_path = central_repo::base_dir();
+        let repo_path = central_repo::library_base_dir();
 
         #[cfg(target_os = "macos")]
         let mut cmd = Command::new("open");
@@ -205,7 +269,9 @@ pub async fn get_diagnostic_info(app: tauri::AppHandle) -> Result<DiagnosticInfo
         let arch = std::env::consts::ARCH.to_string();
         let os_version = detect_os_version();
         let configured = central_repo::configured_base_dir();
-        let central_repo_path = central_repo::base_dir().to_string_lossy().to_string();
+        let central_repo_path = central_repo::library_base_dir()
+            .to_string_lossy()
+            .to_string();
         Ok(DiagnosticInfo {
             app_version,
             os,
@@ -480,7 +546,9 @@ pub async fn export_logs_zip(
         .map_err(|e| AppError::io(format!("Failed to resolve log dir: {e}")))?;
     let app_name = app.package_info().name.clone();
     let app_version = app.config().version.clone().unwrap_or_default();
-    let central_path = central_repo::base_dir().to_string_lossy().to_string();
+    let central_path = central_repo::library_base_dir()
+        .to_string_lossy()
+        .to_string();
     let central_overridden = central_repo::configured_base_dir().is_some();
     let os = std::env::consts::OS.to_string();
     let arch = std::env::consts::ARCH.to_string();

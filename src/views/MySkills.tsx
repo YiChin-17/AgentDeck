@@ -157,6 +157,7 @@ export function MySkills() {
     closeSkillDetail,
     projects,
     refreshProjects,
+    libraryOffline,
   } = useApp();
   const [viewMode, setViewMode] = useState<"board" | "grid" | "list">("board");
   const [boardPendingIds, setBoardPendingIds] = useState<Set<string>>(new Set());
@@ -389,7 +390,9 @@ export function MySkills() {
     [filtered, viewedPreset]
   );
 
-  const canDrag = !!viewedPreset;
+  // Dragging deploys a Skill into the viewed Skill Pack, so it needs both a
+  // target pack and a Library that can actually be written to.
+  const canDrag = !!viewedPreset && !libraryOffline;
 
   const refreshGitStatus = useCallback(async () => {
     try {
@@ -1108,6 +1111,14 @@ export function MySkills() {
           <span className="app-badge">
             {skills.length}
           </span>
+          {/* These rows come from internal state, not from the Library: without
+              this the list looks like a live inventory of files that are not
+              currently reachable. */}
+          {libraryOffline && (
+            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-300">
+              {t("library.offline.cachedNotice")}
+            </span>
+          )}
         </h1>
 
       </div>
@@ -1175,7 +1186,8 @@ export function MySkills() {
           </button>
           <button
             onClick={handleUpdateAvailableSkills}
-            disabled={batchUpdating || availableUpdateCount === 0}
+            disabled={batchUpdating || libraryOffline || availableUpdateCount === 0}
+            title={libraryOffline ? t("library.offline.actionBlocked") : undefined}
             className="mr-2 inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-accent-light transition-colors hover:bg-accent-bg disabled:opacity-50"
           >
             <RotateCcw className={cn("h-3.5 w-3.5", batchUpdating && "animate-spin")} />
@@ -1289,6 +1301,8 @@ export function MySkills() {
 
       {isMultiSelect && (
         <MultiSelectToolbar
+          mutationsDisabled={libraryOffline}
+          mutationsDisabledTitle={t("library.offline.actionBlocked")}
           selectedCount={selectedIds.size}
           isAllSelected={isAllSelected}
           anyDisabled={viewedPreset ? anyDisabled : false}
@@ -1338,6 +1352,7 @@ export function MySkills() {
           onSelect={(card) => setInspectorId(card.id)}
           onMoveToLane={handleBoardMove}
           pendingIds={boardPendingIds}
+          mutationsDisabled={libraryOffline}
         />
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -1430,7 +1445,7 @@ export function MySkills() {
                     {showUpdatePill && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleRefreshSkill(skill); }}
-                        disabled={updatingSkillId === skill.id}
+                        disabled={updatingSkillId === skill.id || libraryOffline}
                         className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/12 px-2 py-0.5 text-[11px] font-medium text-amber-600 outline-none transition-colors hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-400"
                         title={refreshLabel(skill)}
                       >
@@ -1477,7 +1492,7 @@ export function MySkills() {
                         />
                         <ToggleSwitch
                           checked={enabledInPreset}
-                          disabled={!viewedPreset}
+                          disabled={!viewedPreset || libraryOffline}
                           onChange={() => handleTogglePreset(skill)}
                           title={enabledInPreset ? t("mySkills.enabledButton") : t("mySkills.enable")}
                         />
@@ -1514,14 +1529,14 @@ export function MySkills() {
                           <>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleRelinkSource(skill); }}
-                              disabled={updatingSkillId === skill.id}
+                              disabled={updatingSkillId === skill.id || libraryOffline}
                               className="rounded-full border border-border-subtle px-2 py-0.5 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
                             >
                               {t("mySkills.updateActions.relink")}
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDetachSource(skill); }}
-                              disabled={updatingSkillId === skill.id}
+                              disabled={updatingSkillId === skill.id || libraryOffline}
                               className="rounded-full border border-border-subtle px-2 py-0.5 text-[12px] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
                             >
                               {t("mySkills.updateActions.detachSource")}
@@ -1719,7 +1734,7 @@ export function MySkills() {
                   {hasUpdate && !isMultiSelect ? (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRefreshSkill(skill); }}
-                      disabled={updatingSkillId === skill.id}
+                      disabled={updatingSkillId === skill.id || libraryOffline}
                       className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/12 px-2 py-0.5 text-[11px] font-medium text-amber-600 outline-none transition-colors hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-400"
                       title={refreshLabel(skill)}
                     >
@@ -1763,14 +1778,14 @@ export function MySkills() {
                   <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRelinkSource(skill); }}
-                      disabled={updatingSkillId === skill.id}
+                      disabled={updatingSkillId === skill.id || libraryOffline}
                       className="rounded px-2 py-0.5 text-[13px] font-medium text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
                     >
                       {t("mySkills.updateActions.relink")}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDetachSource(skill); }}
-                      disabled={updatingSkillId === skill.id}
+                      disabled={updatingSkillId === skill.id || libraryOffline}
                       className="rounded px-2 py-0.5 text-[13px] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
                     >
                       {t("mySkills.updateActions.detachSource")}
@@ -1817,7 +1832,7 @@ export function MySkills() {
                     />
                     <ToggleSwitch
                       checked={enabledInPreset}
-                      disabled={!viewedPreset}
+                      disabled={!viewedPreset || libraryOffline}
                       onChange={() => handleTogglePreset(skill)}
                       title={enabledInPreset ? t("mySkills.enabledButton") : t("mySkills.enable")}
                     />

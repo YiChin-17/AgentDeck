@@ -645,6 +645,7 @@
     "repoWarning_config_unreadable": "中央庫設定檔已損壞或無法讀取，本次啟動已回退到預設路徑（~/.skills-manager）。如果技能庫看起來是空的，你的資料仍在先前設定的路徑裡——請到「中央儲存庫路徑」重新指定。",
     "repoWarning_repo_path_invalid": "設定的中央儲存庫路徑無效，本次啟動已回退到預設路徑（~/.skills-manager）。如果技能庫看起來是空的，請到「中央儲存庫路徑」重新指定資料所在位置。",
     "repoWarning_migration_incomplete": "將中央庫遷移到新位置的操作沒有完成，本次啟動仍在使用原位置的現有技能庫——資料沒有遺失。要完成遷移，請打開設定，把「中央儲存庫路徑」指向一個空的、可寫的資料夾（點「編輯」可查看你選擇的目標位置），然後重新啟動。遷移成功前，目前的技能庫會留在原地——請不要刪除它。",
+    "repoWarning_migration_blocked": "先前設定的技能庫與 App 內部儲存位置同時存在資料，AgentDeck 沒有自動合併——兩邊都沒有被修改或刪除。請打開設定，確認你要保留的技能庫在哪一邊，把「中央儲存庫路徑」指向它，然後重新啟動。",
     "panicDismiss": "忽略",
     "gitBackup": "Git 同步",
     "gitBackupDesc": "將 Skill 庫備份到 Git 儲存庫，支援版本管理和多機同步。",
@@ -786,6 +787,30 @@
     "goToSettings": "設定",
     "expandAll": "展開全部",
     "collapse": "收合"
+  },
+  "library": {
+    "offline": {
+      "title": "技能庫離線",
+      "description": "AgentDeck 讀不到位於 {{path}} 的技能庫（{{reason}}）。以下顯示的是最後一次讀到的狀態；重新連上之前，無法新增、更新、刪除、同步或備份。",
+      "retrying": "檢查中…",
+      "reconnected": "技能庫已重新連上。",
+      "retryFailed": "無法重新檢查技能庫。",
+      "cachedNotice": "離線——最後已知狀態",
+      "actionBlocked": "技能庫離線時無法使用",
+      "documentUnavailable": "這份文件放在技能庫裡，而技能庫目前沒有連上。"
+    },
+    "reason": {
+      "ok": "可使用",
+      "missing_path": "找不到該資料夾，磁碟可能沒有接上",
+      "not_readable": "該資料夾無法讀取",
+      "not_writable": "該資料夾是唯讀的",
+      "identity_mismatch": "該資料夾是另一個技能庫",
+      "refresh_failed": "已連上技能庫，但無法重新載入內容",
+      "watcher_failed": "已連上技能庫，但無法監看檔案變動"
+    },
+    "status": {
+      "online": "技能庫可使用"
+    }
   },
   "addFromLibrary": {
     "title": "從技能庫新增",

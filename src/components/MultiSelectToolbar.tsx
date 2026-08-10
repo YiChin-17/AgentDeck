@@ -28,6 +28,10 @@ interface MultiSelectToolbarProps {
   updatingProject?: boolean;
   updatingCenter?: boolean;
   labels: MultiSelectToolbarLabels;
+  /** Gate every batch action that writes. Selecting and cancelling stay live. */
+  mutationsDisabled?: boolean;
+  /** Tooltip explaining why the batch actions are unavailable. */
+  mutationsDisabledTitle?: string;
   onUpdate?: () => void;
   onUpdateProject?: () => void;
   onUpdateCenter?: () => void;
@@ -50,6 +54,8 @@ export function MultiSelectToolbar({
   updatingProject = false,
   updatingCenter = false,
   labels,
+  mutationsDisabled = false,
+  mutationsDisabledTitle,
   onUpdate,
   onUpdateProject,
   onUpdateCenter,
@@ -59,6 +65,9 @@ export function MultiSelectToolbar({
   onCancel,
   onEditTags,
 }: MultiSelectToolbarProps) {
+  const blocked = mutationsDisabled
+    ? { disabled: true, title: mutationsDisabledTitle }
+    : { disabled: false, title: undefined };
   return (
     <div className="flex items-center gap-2 px-1 py-1.5">
       <span className="text-[13px] text-muted">
@@ -69,7 +78,8 @@ export function MultiSelectToolbar({
           {anyUpdatable && labels.update && onUpdate && (
             <button
               onClick={onUpdate}
-              disabled={updating}
+              disabled={updating || blocked.disabled}
+              title={blocked.title}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-[13px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
             >
               <RotateCcw className={cn("h-3.5 w-3.5", updating && "animate-spin")} />
@@ -79,7 +89,8 @@ export function MultiSelectToolbar({
           {anyCanUpdateProject && labels.updateProject && onUpdateProject && (
             <button
               onClick={onUpdateProject}
-              disabled={updatingProject}
+              disabled={updatingProject || blocked.disabled}
+              title={blocked.title}
               className="inline-flex items-center gap-1.5 rounded-md bg-sky-600/90 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-sky-500 transition-colors disabled:opacity-50"
             >
               <Download className={cn("h-3.5 w-3.5", updatingProject && "animate-spin")} />
@@ -89,7 +100,8 @@ export function MultiSelectToolbar({
           {anyCanUpdateCenter && labels.updateCenter && onUpdateCenter && (
             <button
               onClick={onUpdateCenter}
-              disabled={updatingCenter}
+              disabled={updatingCenter || blocked.disabled}
+              title={blocked.title}
               className="inline-flex items-center gap-1.5 rounded-md bg-amber-600/90 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-amber-500 transition-colors disabled:opacity-50"
             >
               <Upload className={cn("h-3.5 w-3.5", updatingCenter && "animate-spin")} />
@@ -99,7 +111,9 @@ export function MultiSelectToolbar({
           {onEditTags && labels.editTags && (
             <button
               onClick={onEditTags}
-              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600/90 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-violet-500 transition-colors"
+              disabled={blocked.disabled}
+              title={blocked.title}
+              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600/90 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-violet-500 transition-colors disabled:opacity-50"
             >
               <Tag className="h-3.5 w-3.5" />
               {labels.editTags}
@@ -107,7 +121,9 @@ export function MultiSelectToolbar({
           )}
           <button
             onClick={onDelete}
-            className="inline-flex items-center gap-1.5 rounded-md bg-red-600/90 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-red-500 transition-colors"
+            disabled={blocked.disabled}
+            title={blocked.title}
+            className="inline-flex items-center gap-1.5 rounded-md bg-red-600/90 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-red-500 transition-colors disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
             {labels.delete}
@@ -115,8 +131,10 @@ export function MultiSelectToolbar({
           {showToggle && (
             <button
               onClick={onToggle}
+              disabled={blocked.disabled}
+              title={blocked.title}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] font-medium text-white transition-colors",
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] font-medium text-white transition-colors disabled:opacity-50",
                 anyDisabled
                   ? "bg-emerald-600/90 hover:bg-emerald-500"
                   : "bg-amber-600/90 hover:bg-amber-500"

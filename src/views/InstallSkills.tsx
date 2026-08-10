@@ -44,7 +44,14 @@ const MARKET_SEARCH_CACHE_MAX_ENTRIES = 150;
 
 export function InstallSkills() {
   const { t } = useTranslation();
-  const { refreshPresets, refreshManagedSkills, managedSkills, openSkillDetailById } = useApp();
+  // Every install path writes into the Library.
+  const {
+    refreshPresets,
+    refreshManagedSkills,
+    managedSkills,
+    openSkillDetailById,
+    libraryOffline,
+  } = useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"market" | "local" | "git">("market");
@@ -1074,7 +1081,7 @@ export function InstallSkills() {
                             ) : (
                               <button
                                 onClick={() => handleInstallSkillssh(skill)}
-                                disabled={installing !== null}
+                                disabled={installing !== null || libraryOffline}
                                 className="rounded-[5px] border border-accent-border bg-accent-dark p-1 text-white transition-colors hover:bg-accent disabled:opacity-50"
                                 title={t("install.oneClickInstall")}
                               >
@@ -1279,7 +1286,7 @@ export function InstallSkills() {
                 </button>
                 <button
                   onClick={handleImportAllDiscovered}
-                  disabled={scanLoading || importingAll || pendingGroups.length === 0}
+                  disabled={scanLoading || importingAll || libraryOffline || pendingGroups.length === 0}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-dark px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   {importingAll ? (
@@ -1404,7 +1411,7 @@ export function InstallSkills() {
                               {group.imported ? null : (
                                 <button
                                   onClick={() => primaryPath && handleImportDiscovered(primaryPath, importName)}
-                                  disabled={!primaryPath || isImporting}
+                                  disabled={!primaryPath || isImporting || libraryOffline}
                                   className="inline-flex items-center justify-center gap-1.5 rounded-[6px] border border-accent-border bg-accent-dark px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
                                 >
                                   {isImporting ? (
@@ -1490,7 +1497,7 @@ export function InstallSkills() {
                 ) : (
                   <button
                     onClick={handleGitPreview}
-                    disabled={!gitUrl.trim()}
+                    disabled={!gitUrl.trim() || libraryOffline}
                     className={cn(
                       "flex w-full",
                       gitUrl.trim() && findInstalledByGitUrl(gitUrl)
