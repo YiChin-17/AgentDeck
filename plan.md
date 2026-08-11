@@ -250,12 +250,13 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 完成標準：能把同一組非敏感設定安全套用到多個專案，並可預覽及回復。
 
-### Phase 7：穩定化與發佈
+### Phase 7：穩定化與個人安裝
 
 - 完成 migration、同步、衝突、offline、CLI adapter 測試。
 - 測試真實 Codex 與 Claude 專案。
-- 檢查 app signing、notarization、auto-update 與 sandbox 策略。
-- 整理使用說明、資料備份與解除安裝方式。
+- 執行本機 Tauri build，驗證 `.app` 或平台安裝包可供個人安裝。
+- 整理使用說明，並驗證資料備份與解除安裝方式。
+- 公開 release hosting、distribution signing、notarization 與 auto-update 不列為此階段完成條件；若未來改為對外發布，必須建立新的 Spectra change，定義簽章、notarization、release hosting 與 update trust root。
 
 ## 10. 驗證策略
 

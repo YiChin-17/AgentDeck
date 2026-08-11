@@ -475,22 +475,6 @@ export const hideToTray = () => invoke<void>("hide_to_tray");
 export const openCentralRepoFolder = () =>
   invoke<void>("open_central_repo_folder");
 
-export interface AppUpdateInfo {
-  has_update: boolean;
-  current_version: string;
-  latest_version: string;
-  release_url: string;
-}
-
-export const checkAppUpdate = () =>
-  invoke<AppUpdateInfo>("check_app_update");
-
-/** Non-null when the app runs from somewhere an in-app update cannot be applied. */
-export const updateInstallBlocker = () =>
-  invoke<string | null>("update_install_blocker");
-
-export const restartApp = () => invoke<void>("restart_app");
-
 export interface DiagnosticInfo {
   app_version: string;
   os: string;

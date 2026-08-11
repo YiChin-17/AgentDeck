@@ -25,7 +25,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4", "v7"] }
@@ -47,7 +46,6 @@ hex = "0.4"
 urlencoding = "2"
 zip = "2"
 tempfile = "3.26.0"
-semver = "1"
 aes-gcm = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
 rand = "0.8"

@@ -1,4 +1,3 @@
-use semver::Version;
 use std::process::Command;
 use std::sync::Arc;
 use tauri::{Manager, State};
@@ -7,16 +6,8 @@ use anyhow::Context as _;
 
 use crate::core::{
     central_repo, error::AppError, library_availability, log_sanitize,
-    skill_store::SkillStore, skillssh_api, sync_metadata,
+    skill_store::SkillStore, sync_metadata,
 };
-
-#[derive(serde::Serialize)]
-pub struct AppUpdateInfo {
-    pub has_update: bool,
-    pub current_version: String,
-    pub latest_version: String,
-    pub release_url: String,
-}
 
 #[tauri::command]
 pub async fn get_settings(
@@ -209,44 +200,6 @@ pub async fn open_central_repo_folder() -> Result<(), AppError> {
 
         let _ = status;
         Ok(())
-    })
-    .await?
-}
-
-#[tauri::command]
-pub async fn check_app_update(
-    app: tauri::AppHandle,
-    store: State<'_, Arc<SkillStore>>,
-) -> Result<AppUpdateInfo, AppError> {
-    let current_version = app.config().version.clone().unwrap_or_default();
-    let proxy_url = store.proxy_url();
-    tauri::async_runtime::spawn_blocking(move || {
-        let client = skillssh_api::build_http_client(proxy_url.as_deref(), 15);
-
-        let resp: serde_json::Value = client
-            .get("https://api.github.com/repos/xingkongliang/skills-manager/releases/latest")
-            .send()
-            .map_err(|e| AppError::network(format!("Network error: {e}")))?
-            .json()
-            .map_err(|e| AppError::network(format!("Failed to parse response: {e}")))?;
-
-        let tag = resp["tag_name"]
-            .as_str()
-            .ok_or_else(|| AppError::network("No tag_name in response"))?;
-        let latest_version = tag.strip_prefix('v').unwrap_or(tag).to_string();
-        let release_url = resp["html_url"]
-            .as_str()
-            .unwrap_or("https://github.com/xingkongliang/skills-manager/releases")
-            .to_string();
-
-        let has_update = version_gt(&latest_version, &current_version);
-
-        Ok(AppUpdateInfo {
-            has_update,
-            current_version,
-            latest_version,
-            release_url,
-        })
     })
     .await?
 }
@@ -742,64 +695,6 @@ pub async fn app_exit(app: tauri::AppHandle) {
     }
 }
 
-/// Relaunch the app so a freshly installed update takes effect. Only ever
-/// invoked from an explicit user confirmation — the updater never restarts on
-/// its own.
-///
-/// Scheduled onto the main thread for the same reason `app_exit` is: the
-/// teardown destroys the main window before the process goes away.
-#[tauri::command]
-pub async fn restart_app(app: tauri::AppHandle) {
-    let app_for_main = app.clone();
-    if let Err(err) = app.run_on_main_thread(move || crate::restart_app(&app_for_main)) {
-        log::error!("Failed to schedule restart_app on main thread: {err}");
-        crate::restart_app(&app);
-    }
-}
-
-/// Report why an in-app update cannot be installed from where the app is
-/// running right now, or `None` to let the updater proceed.
-///
-/// Deliberately narrow. A general "is the bundle's parent writable" test would
-/// be wrong: a `/Applications` copy owned by a different admin account is not
-/// writable by this process either, and there the updater's own privileged
-/// prompt succeeds. Only the two states below are beyond its reach, because it
-/// replaces the `.app` in place.
-#[tauri::command]
-pub async fn update_install_blocker() -> Result<Option<String>, AppError> {
-    // macOS-specific: elsewhere the updater runs an installer from a temp
-    // directory instead of swapping the running bundle.
-    if !cfg!(target_os = "macos") {
-        return Ok(None);
-    }
-    tauri::async_runtime::spawn_blocking(|| {
-        let exe = std::env::current_exe().map_err(|e| AppError::io(e.to_string()))?;
-        // Gatekeeper runs a quarantined copy from a randomized read-only mount
-        // that is discarded on quit, so an update written there would vanish
-        // rather than apply.
-        if exe.components().any(|c| c.as_os_str() == "AppTranslocation") {
-            return Ok(Some("relocate".to_string()));
-        }
-        // …/Foo.app/Contents/MacOS/foo — the updater swaps the bundle inside
-        // its parent directory, so that is what has to accept a write.
-        let Some(parent) = exe.ancestors().nth(4) else {
-            return Ok(None);
-        };
-        match tempfile::Builder::new()
-            .prefix(".skills-manager-update-probe")
-            .tempfile_in(parent)
-        {
-            Ok(_) => Ok(None),
-            // EROFS: still running from a mounted .dmg or another read-only
-            // image, which no amount of privilege makes writable.
-            Err(e) if e.raw_os_error() == Some(30) => Ok(Some("relocate".to_string())),
-            // EACCES and friends: the updater escalates on its own, so let it.
-            Err(_) => Ok(None),
-        }
-    })
-    .await?
-}
-
 #[tauri::command]
 pub async fn hide_to_tray(
     app: tauri::AppHandle,
@@ -838,15 +733,4 @@ pub async fn hide_to_tray(
     #[cfg(not(target_os = "macos"))]
     let _ = app;
     Ok(())
-}
-
-fn version_gt(a: &str, b: &str) -> bool {
-    // Prefer strict SemVer comparison (supports pre-release/build metadata).
-    if let (Ok(a_ver), Ok(b_ver)) = (Version::parse(a), Version::parse(b)) {
-        return a_ver > b_ver;
-    }
-
-    // Fallback for non-SemVer tags.
-    let parse = |s: &str| -> Vec<u64> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
-    parse(a) > parse(b)
 }
