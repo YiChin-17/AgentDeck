@@ -133,8 +133,7 @@ pub async fn import_existing_skill(
             store.insert_skill(&record)?;
 
             sync_metadata::write_all_from_db_unlocked(&store)
-        })
-        .map_err(AppError::io)?;
+        })?;
 
         Ok(())
     })
@@ -200,8 +199,7 @@ pub async fn import_all_discovered(store: State<'_, Arc<SkillStore>>) -> Result<
             }
 
             Ok(())
-        })
-        .map_err(AppError::io)?;
+        })?;
 
         Ok(())
     })
@@ -252,6 +250,35 @@ mod tests {
             fingerprint: fingerprint.map(str::to_string),
             found_at: 0,
             imported_skill_id: None,
+        }
+    }
+
+    /// `with_library_write_lock` already returns a typed `AppError`. Both import
+    /// commands wrapped its result in `AppError::io` again, which rewrote
+    /// `library_offline` into `io`: the frontend received a bare "missing_path"
+    /// it could only show as a generic failure.
+    ///
+    /// Structural rather than behavioural: both commands take Tauri `State`, and
+    /// their whole body lives inside the guarded closure, so there is nothing to
+    /// call without a Tauri runtime.
+    #[test]
+    fn imports_keep_the_offline_error_kind() {
+        let source = include_str!("scan.rs");
+        for command in [
+            "pub async fn import_existing_skill(",
+            "pub async fn import_all_discovered(",
+        ] {
+            let start = source
+                .find(command)
+                .unwrap_or_else(|| panic!("{command} no longer exists; update this list"));
+            let body = &source[start..];
+            let end = body.find("\n#[cfg(test)]").unwrap_or(body.len());
+            let end = body[..end].find("\n#[tauri::command]").unwrap_or(end);
+            assert!(
+                !body[..end].contains(".map_err(AppError::io)"),
+                "{command} flattens the guard's error: an offline import would be \
+                 reported to the frontend as a generic IO failure"
+            );
         }
     }
 

@@ -186,39 +186,51 @@ pub async fn delete_preset(
     store: State<'_, Arc<SkillStore>>,
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let was_active = store
-            .get_active_scenario_id()
-            .map_err(AppError::db)?
-            .as_deref()
-            == Some(id.as_str());
-
-        if was_active {
-            unsync_scenario_skills(&store, &id)?;
-        }
-
-        sync_metadata::with_library_write_lock("delete scenario", || {
-            store.delete_scenario(&id)?;
-            sync_metadata::write_all_from_db_unlocked(&store)
-        })?;
-
-        if was_active {
-            let remaining = store.get_all_scenarios().map_err(AppError::db)?;
-            if let Some(first) = remaining.first() {
-                store.set_active_scenario(&first.id).map_err(AppError::db)?;
-                sync_scenario_skills(&store, &first.id)?;
-            } else {
-                store.clear_active_scenario().map_err(AppError::db)?;
-            }
-        }
-
-        Ok(())
-    })
-    .await?;
+    let result =
+        tauri::async_runtime::spawn_blocking(move || delete_preset_impl(&store, &id)).await?;
     if result.is_ok() {
         refresh_tray_menu_best_effort(&app);
     }
     result
+}
+
+/// Split out from the command so the offline refusal can be exercised: a
+/// `#[tauri::command]` taking `State`/`AppHandle` cannot be called without a
+/// Tauri runtime.
+fn delete_preset_impl(store: &SkillStore, id: &str) -> Result<(), AppError> {
+    // Deleting the active pack first removes its deployment targets. That
+    // removal only touches the agents' own directories and the target rows, so
+    // offline it succeeds — while the Library write below cannot. The user
+    // would be left with no deployment and the pack still there. The guard
+    // therefore belongs before the first mutation, not at the write lock.
+    library_availability::ensure_library_online()?;
+
+    let was_active = store
+        .get_active_scenario_id()
+        .map_err(AppError::db)?
+        .as_deref()
+        == Some(id);
+
+    if was_active {
+        unsync_scenario_skills(store, id)?;
+    }
+
+    sync_metadata::with_library_write_lock("delete scenario", || {
+        store.delete_scenario(id)?;
+        sync_metadata::write_all_from_db_unlocked(store)
+    })?;
+
+    if was_active {
+        let remaining = store.get_all_scenarios().map_err(AppError::db)?;
+        if let Some(first) = remaining.first() {
+            store.set_active_scenario(&first.id).map_err(AppError::db)?;
+            sync_scenario_skills(store, &first.id)?;
+        } else {
+            store.clear_active_scenario().map_err(AppError::db)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Apply a preset to the default targets (all enabled agent globals).
@@ -641,6 +653,73 @@ mod tests {
         assert!(targets.iter().any(|target| {
             target.skill_id == "second" && target.target_path.ends_with("skill123-2")
         }));
+    }
+
+    /// Deleting the active Skill Pack unsyncs its deployment targets before it
+    /// touches the Library. That removal needs no volume, so offline it used to
+    /// run to completion and only then hit the write lock: every deployment
+    /// gone, the pack still there, and a `library_offline` error explaining
+    /// none of it.
+    #[test]
+    fn deleting_the_active_preset_while_offline_keeps_every_deployment() {
+        use crate::core::central_repo;
+        use crate::core::error::ErrorKind;
+        use crate::core::library_availability::{
+            availability, set_availability, LibraryAvailability, LibraryReason, LibraryState,
+        };
+
+        let _guard = central_repo::test_base_dir_lock();
+        let restore = availability();
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
+        let source_base = tmp.path().join("central");
+        let target_base = tmp.path().join("agent-skills");
+        fs::create_dir_all(&source_base).unwrap();
+        fs::create_dir_all(&target_base).unwrap();
+        configure_single_custom_tool(&store, &target_base);
+        store.set_setting("sync_mode", "copy").unwrap();
+
+        store
+            .insert_scenario(&sample_scenario("pack", "Pack"))
+            .unwrap();
+        let skill_dir = write_skill_dir(&source_base, "deployed");
+        store
+            .insert_skill(&sample_skill("deployed", "deployed", &skill_dir))
+            .unwrap();
+        store.add_skill_to_scenario("pack", "deployed").unwrap();
+        store.set_active_scenario("pack").unwrap();
+        sync_scenario_skills(&store, "pack").unwrap();
+
+        let deployed_target = target_base.join("deployed");
+        assert!(deployed_target.exists(), "the fixture must start deployed");
+        let targets_before = store.get_all_targets().unwrap().len();
+
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::MissingPath,
+            configured_path: source_base.clone(),
+            library_id: None,
+        });
+        let refused = delete_preset_impl(&store, "pack");
+
+        set_availability(restore);
+
+        let err = refused.expect_err("an offline delete must fail closed");
+        assert_eq!(err.kind, ErrorKind::LibraryOffline);
+        assert!(
+            deployed_target.exists(),
+            "the deployed skill must survive a refused delete"
+        );
+        assert_eq!(
+            store.get_all_targets().unwrap().len(),
+            targets_before,
+            "target rows must survive a refused delete"
+        );
+        assert_eq!(
+            store.get_all_scenarios().unwrap().len(),
+            1,
+            "the pack itself must survive a refused delete"
+        );
     }
 
     /// `with_library_write_lock` already returns a typed `AppError`; wrapping it

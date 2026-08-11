@@ -65,26 +65,34 @@ pub fn initialize_cli_store() -> Result<Arc<SkillStore>> {
 fn initialize_store_inner(
     apply_startup_default: bool,
 ) -> Result<(Arc<SkillStore>, StartupTimings)> {
-    // Decide availability once, before any step that reads the Library. An
-    // offline Library must not be reindexed or synced: its absent files would
-    // be recorded as deletions.
-    let library_online = library_availability::refresh_availability().is_online();
-    initialize_store_with(apply_startup_default, library_online)
+    initialize_store_with(apply_startup_default, None)
 }
 
 /// Startup with the availability verdict supplied, so the offline path can be
-/// exercised without an external volume.
+/// exercised without an external volume. `None` probes for real.
 fn initialize_store_with(
     apply_startup_default: bool,
-    library_online: bool,
+    library_online: Option<bool>,
 ) -> Result<(Arc<SkillStore>, StartupTimings)> {
     let total_start = Instant::now();
     let mut timings = StartupTimings::default();
-    timings.library_online = library_online;
 
     let step = Instant::now();
     central_repo::ensure_central_repo().context("Failed to create central repo")?;
     timings.ensure_central_repo_ms = step.elapsed().as_millis();
+
+    // Decide availability once, before any step that reads the Library. An
+    // offline Library must not be reindexed or synced: its absent files would
+    // be recorded as deletions.
+    //
+    // After `ensure_central_repo`, not before: on a first launch the internal
+    // default Library does not exist until that call creates it, and an earlier
+    // probe would report the app's own fresh Library as an unplugged volume.
+    // The same call deliberately does not create an external Library root, so
+    // an absent volume still probes offline here.
+    let library_online =
+        library_online.unwrap_or_else(|| library_availability::refresh_availability().is_online());
+    timings.library_online = library_online;
 
     let db_path = central_repo::db_path();
     let step = Instant::now();
@@ -165,7 +173,8 @@ mod tests {
         std::fs::write(metadata.join("schema.json"), b"{}").unwrap();
         assert!(sync_metadata::metadata_exists());
 
-        let (store, timings) = initialize_store_with(true, false).expect("app must still start");
+        let (store, timings) =
+            initialize_store_with(true, Some(false)).expect("app must still start");
 
         central_repo::set_test_base_dir_override(None);
 
@@ -182,6 +191,33 @@ mod tests {
         assert!(!timings.library_online);
     }
 
+    /// A first launch has no `~/.skills-manager` yet — `ensure_central_repo`
+    /// creates it. Probing before that step reports the app's own default
+    /// Library as a missing volume, so a fresh install would come up offline
+    /// with every action blocked until the user pressed Retry.
+    #[test]
+    fn a_first_launch_creates_the_default_library_before_judging_it() {
+        let _guard = central_repo::test_base_dir_lock();
+        let restore = library_availability::availability();
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().join("state");
+        central_repo::set_test_base_dir_override(Some(base.clone()));
+        // The helper creates the base for the online cases; a first launch has
+        // nothing there at all.
+        std::fs::remove_dir_all(&base).unwrap();
+
+        let (_store, timings) = initialize_store_inner(true).expect("app must start");
+
+        central_repo::set_test_base_dir_override(None);
+        library_availability::set_availability(restore);
+
+        assert!(
+            timings.library_online,
+            "a default Library the app just created is not an unplugged volume"
+        );
+        assert_eq!(timings.apply_scenario_kind, "default_startup");
+    }
+
     /// The same startup online still does the Library work, so the guard above
     /// cannot silently disable it for everyone.
     #[test]
@@ -190,7 +226,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         central_repo::set_test_base_dir_override(Some(tmp.path().join("state")));
 
-        let (_store, timings) = initialize_store_with(true, true).expect("app must start");
+        let (_store, timings) = initialize_store_with(true, Some(true)).expect("app must start");
 
         central_repo::set_test_base_dir_override(None);
 

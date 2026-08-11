@@ -34,6 +34,12 @@
 - [x] 4b.5 修正 `presets.rs` 的 `update_preset`／`reorder_presets`／`reorder_preset_skills`：移除套在 `with_library_write_lock` 結果上的 `.map_err(AppError::db)`，該轉換把 `library_offline` 壓成 `database`，前端因此收到裸的 `missing_path` 而無法對應到離線 UI。
 - [x] 4b.6 為 4b.4／4b.5 補上結構性防護測試（`every_deployment_touching_command_is_guarded`、`preset_apply_entry_points_are_guarded`、`scenario_writes_keep_the_offline_error_kind`）：這些 command 需要 Tauri `State` 無法直接呼叫，改以 `include_str!` 斷言 guard 存在；三支均以移除 guard／還原壓扁寫法實測會 FAILED，確認不是恆真斷言。
 
+## 4c. 第三輪 verify 後補洞
+
+- [x] 4c.1 修正啟動探測順序：`app_state::initialize_store_inner` 原本在 `ensure_central_repo()` **之前** 呼叫 `refresh_availability()`，首次啟動時 `~/.skills-manager` 尚未建立，內建預設 Library 被判成 `missing_path`，全新安裝一開機就是 offline、所有動作停用、startup scenario 也被跳過。改為先 `ensure_central_repo()` 再探測，並把 `initialize_store_with` 的 `library_online` 改成 `Option<bool>`（`None` = 真的探測），既有 offline／online 測試改傳 `Some(..)`。以 `a_first_launch_creates_the_default_library_before_judging_it` 驗收（外接 Library 缺席時 `ensure_central_repo` 依然不建立該路徑，offline 判定不受影響）。
+- [x] 4c.2 修正 `presets::delete_preset` 的 guard 位置：刪除中的 Skill Pack 若是 active，會先 `unsync_scenario_skills()` 移除全部部署 target 檔與 target row，之後才撞上 `with_library_write_lock` 的 guard——離線時使用者失去所有部署、Pack 卻還在，違反 spec「Rejection MUST NOT mutate ... database records ... Agent and Project targets」。把 command body 抽成 `delete_preset_impl()` 並在第一個 mutation 之前呼叫 `ensure_library_online()`；以 `deleting_the_active_preset_while_offline_keeps_every_deployment` 行為測試驗收（target 檔、target row、scenario row 前後不變且錯誤 kind 為 `library_offline`）。
+- [x] 4c.3 修正 `scan.rs` 的 error kind 壓扁：`import_existing_skill` 與 `import_all_discovered` 對 `with_library_write_lock` 的結果再套 `.map_err(AppError::io)`，把 `library_offline` 壓成 `io`，前端只收到裸的 `missing_path` 而無法對應離線 UI（與 4b.5 同類）。移除該轉換；以結構性測試 `imports_keep_the_offline_error_kind` 鎖住（兩支 command 需要 Tauri `State` 且整個 body 都在被守護的 closure 內，無法直接呼叫）。
+
 ## 5. 完整驗證
 
 - [x] 5.1 執行所有新增focused Rust tests、`cargo test --manifest-path src-tauri/Cargo.toml`、`npm run build`、`npm run lint`、`npm run check:i18n`、`npm run check:board`、`npm run check:board-layout`、`npm run check:skill-pack-ui`、`spectra validate protect-offline-external-library`、`spectra analyze protect-offline-external-library --json`與`git diff --check`；要求tests/build/lint/四支check腳本exit 0、Rust 0 failed、Spectra無Critical／Warning，並以`git diff`確認未修改database schema、Git backup protocol、CLI explicit root語意、Agent／Project routing、board lane定義／Inspector版面或`src/i18n`的語系組成。
