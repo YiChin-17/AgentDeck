@@ -556,7 +556,7 @@ pub async fn export_logs_zip(
         }
 
         let diagnostics = format!(
-            "# Diagnostics\n\nExported: {ts}\n\n- App version: `{ver}`\n- OS: `{os} {osver} ({arch})`\n- Central repo: `{repo}`{custom}\n- Log files included: {count}\n- Audit entries included: {audit}\n",
+            "# AgentDeck Diagnostics\n\nExported: {ts}\n\n- App version: `{ver}`\n- OS: `{os} {osver} ({arch})`\n- Central repo: `{repo}`{custom}\n- Log files included: {count}\n- Audit entries included: {audit}\n",
             ts = chrono::Local::now().to_rfc3339(),
             ver = app_version,
             os = os,

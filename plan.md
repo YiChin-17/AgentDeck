@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-09
+最後更新：2026-08-11
 
 ## 1. 專案摘要
 
@@ -26,6 +26,9 @@ AgentDeck 是一個 macOS 桌面 GUI，用來集中管理 Codex 與 Claude Code 
 - Skill Library 預設放內部磁碟，並允許使用者改選外接磁碟位置。
 - GUI 直接安全地編輯 JSON/TOML 設定；Plugin 的安裝、更新、移除與驗證優先呼叫官方 CLI。
 - 不把 Plugin、Hook、Config Profile 強行塞進既有的 Skill 資料模型；它們共用上層 Artifact 概念，但保留各自的資料與部署規則。
+- 桌面產品名稱固定為 `AgentDeck`，Bundle ID 固定為 `io.github.yichin17.agentdeck`；npm／Cargo desktop package 與預設 desktop binary 使用 `agentdeck`。
+- 產品改名不改持久協議：`.skills-manager`、`skills-manager.db`、Git backup metadata／refs／trailers、`skills-manager-git-backup` Keychain service 與既有 localStorage keys 保持不變。
+- `skills-manager-cli` 是既有 Skill automation contract，暫不改名；GitHub OAuth 撤銷指引也保留 GitHub 實際顯示的外部名稱 `skills-manager`。
 
 ## 3. 儲存位置規劃
 
@@ -38,19 +41,22 @@ AgentDeck 是一個 macOS 桌面 GUI，用來集中管理 Codex 與 Claude Code 
 ### App 內部資料
 
 ```text
-~/Library/Application Support/AgentDeck/
-├── agent-deck.sqlite
-├── settings.json
-├── backups/
+~/.skills-manager/
+├── skills-manager.db
+├── skills/
+├── scenarios/
+├── cache/
 └── logs/
 ```
+
+Library 位置設定沿用 `~/Library/Application Support/skills-manager/repo-config.json`。Bundle ID 只影響 Tauri 管理的 logs／WebView container 等非核心狀態，不搬移或重建上述 Library、SQLite 與 backup 資料。
 
 ### 中央 Library
 
 預設位置：
 
 ```text
-~/Library/Application Support/AgentDeck/Library/
+~/.skills-manager/
 ```
 
 可由使用者改選的位置，例如：

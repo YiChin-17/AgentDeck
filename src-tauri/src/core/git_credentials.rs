@@ -210,6 +210,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bundle_identity_change_keeps_the_legacy_keyring_service() {
+        assert_eq!(KEYRING_SERVICE, "skills-manager-git-backup");
+    }
+
+    #[test]
     fn split_extracts_user_and_password() {
         let (cred, sanitized) =
             split_credentials_from_url("https://alice:s3cret@github.com/acme/repo.git").unwrap();

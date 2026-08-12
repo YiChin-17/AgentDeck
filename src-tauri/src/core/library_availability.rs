@@ -461,6 +461,34 @@ mod tests {
     }
 
     #[test]
+    fn bundle_identity_change_keeps_missing_external_library_offline_without_mutation() {
+        let parent = tempfile::tempdir().unwrap();
+        fs::write(parent.path().join("existing-state"), b"must remain unchanged").unwrap();
+        let absent = parent.path().join("Volumes/Ext/Library");
+        let before = tree_hash(parent.path());
+
+        for bundle_id in [
+            "com.agentskills.desktop",
+            "io.github.yichin17.agentdeck",
+        ] {
+            let probe = probe_library(&absent, Some("existing-library-id"));
+            assert_eq!(
+                probe.state,
+                LibraryState::Offline,
+                "{bundle_id} must keep the configured external Library offline"
+            );
+            assert_eq!(probe.reason, LibraryReason::MissingPath);
+            assert!(!absent.exists(), "{bundle_id} must not create a fallback Library");
+        }
+
+        assert_eq!(
+            tree_hash(parent.path()),
+            before,
+            "probing before and after the Bundle ID switch must not mutate disk state"
+        );
+    }
+
+    #[test]
     fn adopted_library_probes_online_without_touching_the_tree() {
         let (root, id) = adopted_library();
         let before = tree_hash(root.path());

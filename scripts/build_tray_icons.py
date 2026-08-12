@@ -1,8 +1,8 @@
 """Generate tray icons for macOS menu bar and Windows/Linux notification area.
 
-macOS variant (tray-icon-{N}.png): the bare S silhouette stamped as solid
-white on a transparent background. macOS menu bars are dark, so a bright
-white glyph is visible without template inversion.
+macOS variant (tray-icon-{N}.png): the AgentDeck card-deck silhouette stamped
+as solid black on a transparent background. Tauri marks it as a template image
+so macOS supplies the correct light/dark menu-bar tint.
 
 Windows/Linux variant (tray-icon-color-{N}.png): the full colored app icon
 resampled to tray sizes. Windows taskbars don't auto-tint, and a single-tone
@@ -14,6 +14,7 @@ Inputs:
     src-tauri/icons/icon.png          full colored app icon (rounded square)
 
 Outputs:
+    src-tauri/icons/tray/tray-icon-source.png                (macOS master)
     src-tauri/icons/tray/tray-icon-{16,20,24,32}.png         (macOS)
     src-tauri/icons/tray/tray-icon-color-{16,20,24,32}.png   (Windows/Linux)
 """
@@ -21,16 +22,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 from PIL import Image
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCE = REPO / "src-tauri" / "icons" / "icon-source.png"
 COLOR_SOURCE = REPO / "src-tauri" / "icons" / "icon.png"
 TRAY_DIR = REPO / "src-tauri" / "icons" / "tray"
+TRAY_SOURCE = TRAY_DIR / "tray-icon-source.png"
 SIZES = (16, 20, 24, 32)
 INSET = 0.0         # fraction of canvas left blank around the glyph
-GLYPH_RGB = (255, 255, 255)  # tray template; macOS auto-tints for menu bar
+GLYPH_RGB = (0, 0, 0)  # template pixels; macOS supplies the visible tint
 SSAA = 4            # render oversized then downscale for clean small sizes
 ALPHA_THRESHOLD = 8 # alpha levels below this become fully transparent
 
@@ -40,15 +41,10 @@ def silhouette(src: Image.Image) -> Image.Image:
     bbox = src.getbbox()
     if bbox:
         src = src.crop(bbox)
-    alpha = np.array(src.split()[3])
-    alpha = np.where(alpha < ALPHA_THRESHOLD, 0, alpha).astype(np.uint8)
-    h, w = alpha.shape
-    rgba = np.zeros((h, w, 4), dtype=np.uint8)
-    rgba[..., 0] = GLYPH_RGB[0]
-    rgba[..., 1] = GLYPH_RGB[1]
-    rgba[..., 2] = GLYPH_RGB[2]
-    rgba[..., 3] = alpha
-    return Image.fromarray(rgba, mode="RGBA")
+    alpha = src.getchannel("A").point(lambda value: 0 if value < ALPHA_THRESHOLD else value)
+    rgba = Image.new("RGBA", src.size, (*GLYPH_RGB, 0))
+    rgba.putalpha(alpha)
+    return rgba
 
 
 def render_at(silh: Image.Image, size: int) -> Image.Image:
@@ -81,6 +77,8 @@ def main() -> None:
     color_src = Image.open(COLOR_SOURCE).convert("RGBA")
     silh = silhouette(src)
     TRAY_DIR.mkdir(parents=True, exist_ok=True)
+    render_at(silh, 512).save(TRAY_SOURCE, format="PNG", optimize=True)
+    print(f"wrote {TRAY_SOURCE}  size=512")
     for size in SIZES:
         out = TRAY_DIR / f"tray-icon-{size}.png"
         render_at(silh, size).save(out, format="PNG", optimize=True)

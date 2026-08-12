@@ -1,5 +1,5 @@
 {
-  "name": "skills-manager",
+  "name": "agentdeck",
   "private": true,
   "version": "1.30.0",
   "license": "MIT",
@@ -11,6 +11,7 @@
     "check:board-layout": "node scripts/check-board-layout.mjs",
     "check:i18n": "node scripts/check-i18n-locales.mjs",
     "check:no-app-updater": "node scripts/check-no-upstream-app-updater.mjs",
+    "check:product-identity": "node scripts/check-product-identity.mjs",
     "check:skill-pack-ui": "node scripts/check-skill-pack-ui.mjs",
     "lint": "eslint .",
     "preview": "vite preview",

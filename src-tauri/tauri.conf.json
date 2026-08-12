@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "skills-manager",
+  "productName": "AgentDeck",
   "version": "1.30.0",
-  "identifier": "com.agentskills.desktop",
+  "identifier": "io.github.yichin17.agentdeck",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Skills Manager",
+        "title": "AgentDeck",
         "width": 1440,
         "height": 860,
         "minWidth": 1100,

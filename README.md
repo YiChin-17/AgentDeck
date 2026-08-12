@@ -2,7 +2,7 @@
   <img src="assets/icon.png" width="80" />
 </p>
 
-<h1 align="center">Skills Manager</h1>
+<h1 align="center">AgentDeck</h1>
 
 <p align="center">
   One app to manage AI agent skills across all your coding tools.
@@ -13,6 +13,10 @@
 AgentDeck is a fork of [xingkongliang/skills-manager](https://github.com/xingkongliang/skills-manager) retained under the MIT License. The upstream baseline and verification evidence are recorded in [`BASELINE.md`](BASELINE.md).
 
 AgentDeck extends the upstream skill-management foundation to manage Codex and Claude Code Skills, Plugins, Hooks, and Config Profiles from one desktop app. macOS is the first target. Existing upstream cross-platform behavior remains protected unless a later specification explicitly changes that compatibility boundary.
+
+Desktop builds use `AgentDeck` as the product name and `io.github.yichin17.agentdeck` as the stable Bundle ID. This product identity change intentionally keeps the existing `.skills-manager` storage, `skills-manager.db`, backup protocol, `skills-manager-git-backup` Keychain service, local preference keys, and `skills-manager-cli` command contract so existing data and automation continue to work.
+
+The retained GitHub OAuth integration may still appear as `skills-manager` on GitHub's authorization page; use that actual external name when revoking access. On macOS, the Bundle ID change can leave the previous and new apps installed together. Close the old app before starting AgentDeck. After confirming AgentDeck can open the existing Library and backup settings, manually remove `Skills Manager.app` if desired. AgentDeck does not delete the old app or user data.
 
 <p align="center">
   🎬 <a href="https://www.youtube.com/watch?v=wfbCrfNASVU">Video intro (YouTube)</a>
@@ -33,7 +37,7 @@ AgentDeck extends the upstream skill-management foundation to manage Codex and C
 </p>
 
 <p align="center">
-  <img src="assets/demo/library.png" width="800" alt="Skills Manager Library" />
+  <img src="assets/demo/library.png" width="800" alt="AgentDeck Library" />
 </p>
 
 <p align="center"><strong>Install Skills — Marketplace</strong></p>
@@ -59,7 +63,7 @@ AgentDeck extends the upstream skill-management foundation to manage Codex and C
 - **Unified skill library** — Install skills from Git repos, local folders, `.zip` / `.skill` archives, or the [skills.sh](https://skills.sh) marketplace. Everything goes into one central repo, which defaults to `~/.skills-manager` and can be customized in **Settings**.
 - **Marketplace + AI search** — Browse popular skills from the marketplace, run keyword search, or enable SkillsMP AI search with your API key.
 - **Presets** — Group skills into named presets. In any workspace, click a preset pill to instantly activate or deactivate all its skills for the current agent scope. The sidebar lists all presets for quick access.
-- **Global Workspace** — Each agent gets its own page listing every skill in its global folder — including ones installed outside Skills Manager — so the view always reflects what the agent actually sees. Add or remove skills per agent, or use the All Agents overview to manage every installed agent at once.
+- **Global Workspace** — Each agent gets its own page listing every skill in its global folder — including ones installed outside AgentDeck — so the view always reflects what the agent actually sees. Add or remove skills per agent, or use the All Agents overview to manage every installed agent at once.
 - **Project Workspaces** — View and manage project-local skill folders for supported agents, compare them with your central library, and sync changes in either direction. Supports nested skill directories and per-agent assignment when exporting.
 - **Linked Workspaces** — Point to any directory as a skills root — useful for skills that live outside the default agent paths. Managed as a standalone workspace without participating in global preset sync.
 - **Multi-tool sync** — Sync skills to any supported tool via symlink or copy with a single click. Every skill card shows an agent icon badge per enabled agent — click a badge to install or remove that skill for that agent right from the card, with the badge reflecting live sync state.
@@ -80,7 +84,7 @@ AgentDeck extends the upstream skill-management foundation to manage Codex and C
 </p>
 
 - **Presets are reusable skill groups** — A preset is a named collection of skills. Activate a preset in any workspace to add all its skills to the selected agents; deactivate to remove them. Applying a preset is a one-time copy — not a live sync.
-- **Global Workspace manages per-agent global skills** — Each installed agent has its own global skills folder (e.g. `~/.claude/skills/` for Claude Code). Each agent page lists everything in that folder — even skills installed without Skills Manager — so you can add, remove, or adopt them; the All Agents overview manages every agent at once.
+- **Global Workspace manages per-agent global skills** — Each installed agent has its own global skills folder (e.g. `~/.claude/skills/` for Claude Code). Each agent page lists everything in that folder — even skills installed without AgentDeck — so you can add, remove, or adopt them; the All Agents overview manages every agent at once.
 - **Project Workspaces are project-local skill sets** — A project workspace manages the skills that live inside a specific project (e.g. `<project>/.claude/skills/`). Skills added here only apply to that project.
 - **Tags are for grouping and filtering** — Use tags to label similar skills, then filter by tag to find the subset you want quickly.
 - **Batch control works everywhere** — Multi-select skills in any workspace for bulk operations.

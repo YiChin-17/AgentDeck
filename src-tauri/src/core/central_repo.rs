@@ -1425,6 +1425,60 @@ mod tests {
     }
 
     #[test]
+    fn bundle_identity_change_preserves_core_data_layout() {
+        let internal = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        fs::create_dir_all(external.path().join("skills")).unwrap();
+        fs::create_dir_all(external.path().join(".skills-manager")).unwrap();
+        fs::write(internal.path().join("skills-manager.db"), b"existing sqlite state").unwrap();
+        fs::write(
+            external.path().join(".skills-manager/protocol.json"),
+            br#"{"schema_version":1}"#,
+        )
+        .unwrap();
+
+        let config = RepoPathConfig {
+            version: CONFIG_VERSION,
+            library_base: Some(external.path().to_string_lossy().to_string()),
+            library_id: Some("existing-library-id".to_string()),
+            ..RepoPathConfig::default()
+        };
+        let internal_before = tree_hash(internal.path());
+        let external_before = tree_hash(external.path());
+
+        for bundle_id in [
+            "com.agentskills.desktop",
+            "io.github.yichin17.agentdeck",
+        ] {
+            let layout = resolve_layout(&config, internal.path(), None);
+            assert_eq!(
+                layout.state_base,
+                internal.path(),
+                "{bundle_id} must keep application state on the existing internal root"
+            );
+            assert_eq!(
+                layout.db_path(),
+                internal.path().join("skills-manager.db"),
+                "{bundle_id} must open the existing SQLite database"
+            );
+            assert_eq!(
+                layout.library_base,
+                external.path(),
+                "{bundle_id} must keep the configured Library root"
+            );
+            assert_eq!(
+                layout.skills_dir(),
+                external.path().join("skills"),
+                "{bundle_id} must keep the configured Library contents"
+            );
+            assert_eq!(CONFIG_FILE_NAME, "repo-config.json");
+        }
+
+        assert_eq!(tree_hash(internal.path()), internal_before);
+        assert_eq!(tree_hash(external.path()), external_before);
+    }
+
+    #[test]
     fn default_config_keeps_library_and_state_internal() {
         let internal = Path::new("/internal/base");
         let layout = resolve_layout(&RepoPathConfig::default(), internal, None);

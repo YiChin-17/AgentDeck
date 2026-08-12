@@ -1,12 +1,12 @@
 [package]
-name = "skills-manager"
+name = "agentdeck"
 version = "1.0.0"
-description = "Skills Manager - AI Agent Skills Central Manager"
+description = "AgentDeck - AI Agent Artifact Manager"
 authors = ["tianliang"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.88.0"
-default-run = "skills-manager"
+default-run = "agentdeck"
 
 [lib]
 name = "app_lib"

@@ -217,12 +217,12 @@ fn format_status_line(data: &TrayMenuData) -> String {
 fn format_tooltip(data: &TrayMenuData) -> String {
     if data.update_count > 0 {
         format!(
-            "Skills Manager · {} skills · {} agents · {} updates",
+            "AgentDeck · {} skills · {} agents · {} updates",
             data.total_skills, data.coding_agent_count, data.update_count
         )
     } else {
         format!(
-            "Skills Manager · {} skills · {} agents",
+            "AgentDeck · {} skills · {} agents",
             data.total_skills, data.coding_agent_count
         )
     }
@@ -282,7 +282,7 @@ fn build_tray_menu_from_data<R: tauri::Runtime>(
 
     let menu = Menu::new(app)?;
 
-    let app_name = MenuItem::with_id(app, "tray-app-name", "Skills Manager", false, None::<&str>)?;
+    let app_name = MenuItem::with_id(app, "tray-app-name", "AgentDeck", false, None::<&str>)?;
     menu.append(&app_name)?;
 
     let status_line = MenuItem::with_id(
@@ -345,7 +345,7 @@ fn build_tray_menu_from_data<R: tauri::Runtime>(
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    let show_item = MenuItem::with_id(app, "show", "Open Skills Manager", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "Open AgentDeck", true, None::<&str>)?;
     menu.append(&show_item)?;
 
     let check_label = if data.check_updates_running {
@@ -713,8 +713,8 @@ fn ensure_tray_icon(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     #[cfg(target_os = "macos")]
     {
-        // Render the original white PNG directly for maximum brightness.
-        builder = builder.icon_as_template(false);
+        // macOS tints the monochrome deck silhouette for light and dark menu bars.
+        builder = builder.icon_as_template(true);
     }
 
     // On macOS, left-click on tray icon opens the menu by default;
