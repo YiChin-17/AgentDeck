@@ -703,6 +703,212 @@ mod tests {
         }
     }
 
+    /// Same as [`test_repo`], but the database file is seeded at schema v7 and
+    /// only then opened through `SkillStore`, which runs the Artifact
+    /// migration. What comes back is an upgraded database, not a fresh one.
+    fn test_repo_upgraded_from_v7() -> TestRepo {
+        let lock = central_repo::test_base_dir_lock();
+        let tmp = tempdir().unwrap();
+        let base = tmp.path().join("repo");
+        central_repo::set_test_base_dir_override(Some(base.clone()));
+        fs::create_dir_all(central_repo::skills_dir()).unwrap();
+
+        let db_path = base.join("test.db");
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+            crate::core::migrations::create_v7_schema(&conn).unwrap();
+            seed_backup_dataset_v7(&conn, &demo_central_path());
+        }
+
+        let store = SkillStore::new(&db_path).unwrap();
+        TestRepo {
+            _lock: lock,
+            _tmp: tmp,
+            store,
+        }
+    }
+
+    /// The dataset behind the backup round-trip: one Skill with Tags, one
+    /// Scenario, one membership with tool toggles, plus a legacy target so the
+    /// upgraded database really did carry deployment data.
+    fn demo_central_path() -> String {
+        central_repo::skills_dir()
+            .join("demo")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn seed_backup_dataset_v7(conn: &rusqlite::Connection, central_path: &str) {
+        conn.execute(
+            "INSERT INTO skills (id, name, description, source_type, source_ref, central_path,
+                                 content_hash, enabled, created_at, updated_at, status, update_status)
+             VALUES ('skill-1', 'demo', 'a demo skill', 'local', NULL, ?1, 'hash1', 1, 10, 11,
+                     'ok', 'local_only')",
+            [central_path],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "
+            INSERT INTO skill_tags (skill_id, tag) VALUES ('skill-1', 'alpha'), ('skill-1', 'beta');
+            INSERT INTO skill_targets (id, skill_id, tool, target_path, mode, status, synced_at, source_hash)
+            VALUES ('target-1', 'skill-1', 'codex', '/tmp/project/.agents/skills/demo', 'symlink', 'ok', 1000, 'hash1');
+            INSERT INTO scenarios (id, name, description, icon, sort_order, created_at, updated_at)
+            VALUES ('sc-1', 'Work', 'work setup', 'briefcase', 0, 20, 21);
+            INSERT INTO scenario_skills (scenario_id, skill_id, added_at, sort_order)
+            VALUES ('sc-1', 'skill-1', 30, 0);
+            INSERT INTO scenario_skill_tools (scenario_id, skill_id, tool, enabled, updated_at)
+            VALUES ('sc-1', 'skill-1', 'codex', 1, 31), ('sc-1', 'skill-1', 'claude', 0, 32);
+            ",
+        )
+        .unwrap();
+    }
+
+    /// The identical dataset written through the store API onto a fresh v8
+    /// database.
+    fn seed_backup_dataset_v8(store: &SkillStore) {
+        store
+            .insert_skill(&SkillRecord {
+                id: "skill-1".to_string(),
+                name: "demo".to_string(),
+                description: Some("a demo skill".to_string()),
+                source_type: "local".to_string(),
+                source_ref: None,
+                source_ref_resolved: None,
+                source_subpath: None,
+                source_branch: None,
+                source_revision: None,
+                remote_revision: None,
+                central_path: demo_central_path(),
+                content_hash: Some("hash1".to_string()),
+                enabled: true,
+                created_at: 10,
+                updated_at: 11,
+                status: "ok".to_string(),
+                update_status: "local_only".to_string(),
+                last_checked_at: None,
+                last_check_error: None,
+            })
+            .unwrap();
+        store
+            .set_tags_for_skill("skill-1", &["alpha".into(), "beta".into()])
+            .unwrap();
+        store
+            .insert_scenario(&ScenarioRecord {
+                id: "sc-1".to_string(),
+                name: "Work".to_string(),
+                description: Some("work setup".to_string()),
+                icon: Some("briefcase".to_string()),
+                sort_order: 0,
+                created_at: 20,
+                updated_at: 21,
+            })
+            .unwrap();
+        store.add_skill_to_scenario("sc-1", "skill-1").unwrap();
+        store
+            .set_scenario_skill_tool_enabled("sc-1", "skill-1", "codex", true)
+            .unwrap();
+        store
+            .set_scenario_skill_tool_enabled("sc-1", "skill-1", "claude", false)
+            .unwrap();
+    }
+
+    /// Every file under `.skills-manager`, as (relative path, bytes).
+    fn metadata_snapshot() -> Vec<(String, Vec<u8>)> {
+        let root = metadata_dir();
+        let mut files: Vec<(String, Vec<u8>)> = WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().is_file())
+            .map(|entry| {
+                let rel = entry
+                    .path()
+                    .strip_prefix(&root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                (rel, fs::read(entry.path()).unwrap())
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    /// The Artifact migration changes where deployments live, not what a backup
+    /// contains. Metadata is written from the same dataset on a fresh v8
+    /// database and on one upgraded from v7; the bytes must match exactly, and
+    /// the upgrade must not introduce a metadata directory an older client
+    /// would not understand.
+    #[test]
+    fn skill_metadata_bytes_survive_the_artifact_migration_unchanged() {
+        let fresh_bytes = {
+            let repo = test_repo();
+            seed_backup_dataset_v8(&repo.store);
+            write_all_from_db_unlocked(&repo.store).unwrap();
+            metadata_snapshot()
+        };
+
+        let upgraded_bytes = {
+            let repo = test_repo_upgraded_from_v7();
+            // The upgrade really happened: the legacy target became a canonical
+            // deployment and the Skill gained its Artifact identity.
+            assert_eq!(repo.store.get_all_targets().unwrap().len(), 1);
+            assert_eq!(
+                repo.store.get_artifact("skill-1").unwrap().unwrap().kind,
+                crate::core::artifact::ArtifactKind::Skill
+            );
+            write_all_from_db_unlocked(&repo.store).unwrap();
+            metadata_snapshot()
+        };
+
+        assert_eq!(upgraded_bytes, fresh_bytes);
+
+        let names: Vec<&str> = upgraded_bytes.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "scenario-skills/sc-1/skill-1.json",
+                "scenarios/sc-1.json",
+                "schema.json",
+                "skills/skill-1.json",
+            ],
+            "the upgrade must not add Artifact or deployment metadata files"
+        );
+
+        // The canonical format itself is pinned, so a change in serialization
+        // fails here rather than silently breaking older clients.
+        let schema = String::from_utf8(upgraded_bytes[2].1.clone()).unwrap();
+        assert!(schema.contains("\"schema_version\": 1"), "{schema}");
+        assert_eq!(SCHEMA_VERSION, 1);
+        assert_eq!(crate::core::merge::protocol::MERGE_PROTOCOL_VERSION, 2);
+
+        let skill_meta = String::from_utf8(upgraded_bytes[3].1.clone()).unwrap();
+        let parsed: SkillMetaFile = serde_json::from_str(&skill_meta).unwrap();
+        assert_eq!(parsed.skill_id, "skill-1");
+        assert_eq!(parsed.tags, vec!["alpha".to_string(), "beta".to_string()]);
+        // serde_json orders object keys alphabetically when parsing, so this
+        // pins the field set rather than the on-disk order.
+        let keys: Vec<String> = serde_json::from_str::<serde_json::Value>(&skill_meta)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                "enabled",
+                "path",
+                "path_key",
+                "schema_version",
+                "skill_id",
+                "source",
+                "tags",
+            ]
+        );
+    }
+
     /// Preset edits, scan imports, tag writes, and tool toggles all run their
     /// work inside this lock, so the gate has to refuse before the closure runs
     /// — Library metadata lives inside `skills_dir()`.

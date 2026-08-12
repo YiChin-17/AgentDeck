@@ -571,12 +571,12 @@ pub enum BatchApplyMode {
 /// This is the tray-side preset apply primitive. Unlike [`sync_single_skill_to_tool`]
 /// (which is wrapped by the `sync_skill_to_tool` Tauri command and carries the
 /// implicit active-preset toggle side-effect), this batch is a pure
-/// "write/remove files + maintain `skill_targets` rows" operation.
+/// "write/remove files + maintain global Skill deployment rows" operation.
 ///
 /// Remove mode handles shared physical paths: a `target_path` may be referenced
 /// by multiple `(skill_id, tool)` records when several tools resolve to the same
 /// skills directory. The filesystem path is only removed when no remaining
-/// `skill_targets` row references it after the batch deletions, so removing one
+/// Skill deployment references it after the batch deletions, so removing one
 /// preset's tools never wipes another tool's still-active files.
 pub fn apply_skills_to_tools(
     store: &SkillStore,

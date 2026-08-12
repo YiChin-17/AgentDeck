@@ -13,7 +13,7 @@ pub static QUITTING: AtomicBool = AtomicBool::new(false);
 /// Guards concurrent preset apply/remove from the tray so a quick double-click
 /// can't fire two batches at once. Intentionally separate from the
 /// `TRAY_CHECK_UPDATES_RUNNING` flag — update checks only touch
-/// `update_status` while preset apply touches `skill_targets`, so the two are
+/// `update_status` while preset apply touches Skill deployments, so the two are
 /// orthogonal and shouldn't block each other. Sharing the lock would silently
 /// drop preset clicks during long-running update checks.
 static TRAY_PRESET_APPLY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -546,7 +546,7 @@ fn check_updates_from_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         let store_for_task = store.clone();
         // Note: this intentionally does NOT take TRAY_PRESET_APPLY_LOCK.
         // Update checks only mutate `update_status` columns; preset apply
-        // mutates `skill_targets`. They're orthogonal, and sharing a lock
+        // mutates Skill deployments. They're orthogonal, and sharing a lock
         // would silently drop preset clicks made during a long-running check.
         let result = tauri::async_runtime::spawn_blocking(move || {
             let proxy_url = store_for_task.proxy_url();

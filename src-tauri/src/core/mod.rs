@@ -1,4 +1,5 @@
 pub mod app_state;
+pub mod artifact;
 pub mod audit_log;
 pub mod auto_backup;
 pub mod central_repo;

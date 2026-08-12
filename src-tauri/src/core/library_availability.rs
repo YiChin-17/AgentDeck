@@ -447,6 +447,73 @@ mod tests {
         (root, id)
     }
 
+    /// The SQLite database lives on internal storage, so a schema upgrade must
+    /// not depend on an external Library being reachable — otherwise a user
+    /// whose Library volume is unplugged could never start the new version.
+    /// The upgrade must equally not touch the Library to get there.
+    #[test]
+    fn offline_external_library_still_permits_the_internal_schema_upgrade() {
+        use crate::core::artifact::ArtifactKind;
+        use crate::core::skill_store::SkillStore;
+
+        // Shared global availability state — serialize with every other test
+        // that mutates it, and hand it back untouched.
+        let _guard = crate::core::central_repo::test_base_dir_lock();
+        let previous = availability();
+
+        let (library, library_id) = adopted_library();
+        let internal = tempfile::tempdir().unwrap();
+        let db_path = internal.path().join("state.db");
+
+        // A schema v7 database carrying one Skill and one legacy target.
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+            crate::core::migrations::create_v7_schema(&conn).unwrap();
+            conn.execute_batch(
+                "
+                INSERT INTO skills (id, name, source_type, central_path, enabled, created_at,
+                                    updated_at, status, update_status)
+                VALUES ('skill-1', 'demo', 'local', '/tmp/library/demo', 1, 10, 11, 'ok', 'local_only');
+                INSERT INTO skill_targets (id, skill_id, tool, target_path, mode, status, synced_at, source_hash)
+                VALUES ('target-1', 'skill-1', 'codex', '/tmp/project/demo', 'symlink', 'ok', 1000, 'abc');
+                ",
+            )
+            .unwrap();
+        }
+
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::MissingPath,
+            configured_path: library.path().to_path_buf(),
+            library_id: Some(library_id.clone()),
+        });
+        let library_hash_before = tree_hash(library.path());
+
+        let store = SkillStore::new(&db_path).unwrap();
+
+        // The internal upgrade completed and preserved the legacy target.
+        assert_eq!(
+            store.get_artifact("skill-1").unwrap().unwrap().kind,
+            ArtifactKind::Skill
+        );
+        let targets = store.get_all_targets().unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].id, "target-1");
+        assert_eq!(targets[0].tool, "codex");
+        assert_eq!(targets[0].source_hash.as_deref(), Some("abc"));
+
+        // The Library was neither read into nor written, and startup stays offline.
+        assert_eq!(tree_hash(library.path()), library_hash_before);
+        assert_eq!(read_library_id(library.path()).as_deref(), Some(library_id.as_str()));
+        let current = availability();
+        assert_eq!(current.state, LibraryState::Offline);
+        assert_eq!(current.library_id.as_deref(), Some(library_id.as_str()));
+        assert!(ensure_library_online().is_err());
+
+        set_availability(previous);
+    }
+
     #[test]
     fn missing_path_is_offline_and_is_not_created() {
         let parent = tempfile::tempdir().unwrap();

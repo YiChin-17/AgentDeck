@@ -1060,3 +1060,81 @@ fn ignored_file_in_the_way_blocks_with_guidance() {
         "precious local data"
     );
 }
+
+// ── Artifact foundation: restore rebuilds identity, backup format unchanged ──
+
+/// Reindexing a protocol 2 backup written by the pre-Artifact application must
+/// give every restored Skill exactly one kind `skill` Artifact identity, while
+/// leaving the ids, paths, Tags, memberships, refs and trailers the backup
+/// carries untouched — Phase 3 adds no Artifact metadata to the snapshot.
+#[test]
+fn restore_rebuilds_skill_artifact_identity_without_touching_the_backup() {
+    use crate::core::artifact::ArtifactKind;
+
+    let env = setup();
+    let a = env.device_a();
+    a.write_skill_full("skill-1", "alpha", "base content", true, &["tagged"]);
+    a.write_skill_full("skill-2", "beta", "second", false, &[]);
+    a.commit("seed");
+    a.push();
+
+    // What the backup contains before anyone restores it.
+    let refs_before = git(&a.skills, &["for-each-ref", "--format=%(refname)"]);
+    let head_message_before = a.head_message();
+    let tree_before = a.tree_oid();
+    let marker_before =
+        std::fs::read(a.skills.join(".skills-manager/schema.json")).unwrap();
+    let meta_before = std::fs::read(a.skills.join(".skills-manager/skills/skill-1.json")).unwrap();
+
+    // Device B clones the backup and reindexes it into a fresh v8 database.
+    let b = env.device_b();
+    b.activate();
+    b.reindex();
+
+    for (id, path, tags) in [
+        ("skill-1", "alpha", vec!["tagged".to_string()]),
+        ("skill-2", "beta", vec![]),
+    ] {
+        let artifact = b
+            .store
+            .get_artifact(id)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{id} must have an artifact identity"));
+        assert_eq!(artifact.kind, ArtifactKind::Skill);
+        let skill = b.store.get_skill_by_id(id).unwrap().unwrap();
+        assert_eq!(skill.central_path, b.skills.join(path).to_string_lossy());
+        assert_eq!(
+            b.store.get_tags_map().unwrap().get(id).cloned().unwrap_or_default(),
+            tags
+        );
+    }
+    // Restoring creates identities, not deployments.
+    assert!(b.store.get_all_deployments().unwrap().is_empty());
+
+    // A second reindex repairs rather than duplicates.
+    b.reindex();
+    assert_eq!(
+        b.store.get_artifact("skill-1").unwrap().unwrap().kind,
+        ArtifactKind::Skill
+    );
+
+    // The backup itself is byte-for-byte what it was, and still protocol 2.
+    a.activate();
+    assert_eq!(
+        git(&a.skills, &["for-each-ref", "--format=%(refname)"]),
+        refs_before
+    );
+    assert_eq!(a.head_message(), head_message_before);
+    assert_eq!(a.tree_oid(), tree_before);
+    assert_eq!(
+        std::fs::read(a.skills.join(".skills-manager/schema.json")).unwrap(),
+        marker_before
+    );
+    assert_eq!(
+        std::fs::read(a.skills.join(".skills-manager/skills/skill-1.json")).unwrap(),
+        meta_before
+    );
+    assert!(!a.skills.join(".skills-manager/artifacts").exists());
+    assert!(!a.skills.join(".skills-manager/deployments").exists());
+    assert_eq!(protocol::MERGE_PROTOCOL_VERSION, 2);
+}

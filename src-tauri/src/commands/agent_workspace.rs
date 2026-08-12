@@ -494,7 +494,7 @@ fn import_agent_local_skill_to_center(
 /// Repair "stranded" center skills left behind by uploads that predate the
 /// sync-target registration fix. Such a skill has a center record whose
 /// `source_ref` still points at a skill living in an agent's skills directory,
-/// but no `skill_targets` row for that agent — so the global workspace treats
+/// but no deployment row for that agent — so the global workspace treats
 /// it as in-sync-but-unmanaged and renders no actions (the missing delete
 /// button). Runs once at startup; idempotent (after repair the target exists,
 /// so later runs find nothing and exit on the cheap pre-check).
@@ -1023,6 +1023,118 @@ mod tests {
         assert_eq!(entry.skill.relative_path, "shared-tool");
         assert!(doc.content.contains("legacy body"));
         assert!(!doc.content.contains("modern body"));
+    }
+
+    /// The same refusal with a populated store: an offline Library must leave
+    /// the canonical deployment rows exactly as they were, not merely fail to
+    /// add new ones.
+    #[test]
+    fn offline_deployment_commands_leave_existing_rows_and_files_untouched() {
+        use crate::core::artifact::ArtifactScope;
+        use crate::core::library_availability::{
+            LibraryAvailability, LibraryReason, LibraryState, set_availability,
+        };
+        use crate::core::skill_store::{SkillRecord, SkillTargetRecord};
+
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        let center = temp.path().join("center");
+        central_repo::set_test_base_dir_override(Some(center.clone()));
+
+        let store = SkillStore::new(&temp.path().join("store.db")).unwrap();
+        let primary = temp.path().join("agents-skills");
+        let skill_dir = write_skill(&primary, "modern-tool", "modern body");
+        let adapter = test_adapter(&primary, &[]);
+        let path = skill_dir.to_string_lossy().to_string();
+
+        store
+            .insert_skill(&SkillRecord {
+                id: "skill-1".to_string(),
+                name: "demo".to_string(),
+                description: None,
+                source_type: "local".to_string(),
+                source_ref: None,
+                source_ref_resolved: None,
+                source_subpath: None,
+                source_branch: None,
+                source_revision: None,
+                remote_revision: None,
+                central_path: center.join("skills/demo").to_string_lossy().into_owned(),
+                content_hash: Some("hash1".to_string()),
+                enabled: true,
+                created_at: 10,
+                updated_at: 11,
+                status: "ok".to_string(),
+                update_status: "local_only".to_string(),
+                last_checked_at: None,
+                last_check_error: None,
+            })
+            .unwrap();
+        store
+            .insert_target(&SkillTargetRecord {
+                id: "target-1".to_string(),
+                skill_id: "skill-1".to_string(),
+                tool: adapter.key.clone(),
+                target_path: path.clone(),
+                mode: "symlink".to_string(),
+                status: "ok".to_string(),
+                synced_at: Some(1000),
+                last_error: None,
+                source_hash: Some("hash1".to_string()),
+            })
+            .unwrap();
+
+        let targets_before = store.get_all_targets().unwrap();
+        let deployments_before = store.get_all_deployments().unwrap();
+        let skills_before = store.get_all_skills().unwrap();
+        let body_before = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
+
+        set_availability(LibraryAvailability {
+            state: LibraryState::Offline,
+            reason: LibraryReason::NotWritable,
+            configured_path: center.clone(),
+            library_id: None,
+        });
+
+        for err in [
+            import_agent_local_skill_to_center(&store, &adapter, &path).unwrap_err(),
+            update_agent_local_skill_from_center(&store, &adapter, &path).unwrap_err(),
+            delete_agent_local_skill(&store, &adapter, &path).unwrap_err(),
+        ] {
+            assert_eq!(err.kind, ErrorKind::LibraryOffline);
+            assert_eq!(err.message, "not_writable");
+        }
+
+        let targets_after = store.get_all_targets().unwrap();
+        assert_eq!(targets_after.len(), targets_before.len());
+        assert_eq!(targets_after[0].id, targets_before[0].id);
+        assert_eq!(targets_after[0].target_path, targets_before[0].target_path);
+        assert_eq!(targets_after[0].source_hash, targets_before[0].source_hash);
+        assert_eq!(
+            store.get_all_deployments().unwrap(),
+            deployments_before,
+            "canonical deployment rows must be untouched"
+        );
+        assert_eq!(
+            store.get_all_skills().unwrap().len(),
+            skills_before.len()
+        );
+        assert_eq!(
+            store
+                .get_deployments_for_artifact("skill-1")
+                .unwrap()
+                .first()
+                .unwrap()
+                .scope,
+            ArtifactScope::Global
+        );
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap(),
+            body_before,
+            "the agent's own copy must be untouched"
+        );
+
+        central_repo::set_test_base_dir_override(None);
     }
 
     /// Import, pull, and delete all touch either the Library or an agent's
