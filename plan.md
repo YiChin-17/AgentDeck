@@ -228,7 +228,7 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 3：Artifact 基礎模型
 
-目前狀態（2026-08-12）：下一階段，尚未實作。實作前先建立 Spectra change，固定 Artifact identity、deployment target、database migration、backup protocol 與舊資料相容邊界。
+目前狀態（2026-08-12）：已完成。Artifact identity、typed detail boundary、canonical deployment storage 與 schema v8 無損 migration 已實作；既有 Skill、offline Library 與 Git backup protocol 2 相容性均已驗證，相關 Spectra change 已歸檔。
 
 - 新增 Artifact type 與 deployment target 資料模型。
 - 建立資料庫 migration。
@@ -238,6 +238,8 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 完成標準：舊資料可無損升級，Skill 功能與上游版本行為一致。
 
 ### Phase 4：Hooks
+
+目前狀態（2026-08-12）：下一階段。第一個 Spectra change 先交付 Codex／Claude Code Hooks 的唯讀 discovery、來源檢視、設定差異與 compatibility matrix；不寫回設定、不執行 Hook，也不升級 backup protocol。
 
 - 先做讀取、檢視與 diff。
 - 再加入表單編輯、schema validation、backup 與 atomic write。
@@ -285,7 +287,7 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 目前已驗證的基準結果（2026-08-12）：
 
 - 前端 production build 通過。
-- Rust tests：514 passed，0 failed。
+- Rust tests：551 passed，0 failed。
 - npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
@@ -299,13 +301,13 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 3，不直接實作 Hooks、Plugins 或 Config Profiles：
+下一階段是 Phase 4 的 Hooks 唯讀檢視，不直接加入編輯、寫入、backup 或 Plugin／Config Profile 功能：
 
-1. 先為 Artifact 基礎模型建立並驗證 Spectra proposal、design、spec 與 tasks。
-2. 固定 Artifact type、deployment target 與現有 SkillRecord 的邊界，不把不同 Artifact 格式塞入同一資料表。
-3. 定義 database migration、backup protocol 版本與舊資料無損升級的驗收方式。
-4. 只在 Phase 3 artifacts 通過 Spectra analyze 與 validate 後開始實作。
+1. 先為 Codex／Claude Code Hook discovery、來源檢視、同 Agent 設定層 diff 與 compatibility matrix 建立並驗證 Spectra proposal、design、spec 與 tasks。
+2. Codex 讀取 global／project 的 `hooks.json` 與 `config.toml` inline hooks；Claude Code 讀取 user／project／project-local `settings.json` hooks，保留來源與 scope。
+3. 格式錯誤要以來源層級診斷呈現，不能讓單一壞檔阻止其他來源顯示；唯讀階段不得寫檔、執行 Hook 或建立 deployment。
+4. 只在 Phase 4 第一個 change 的 artifacts 通過 Spectra analyze 與 validate 後開始實作。
 
 ## 13. 尚待使用者決定
 
-- 第一個可用版本只做 Skills，還是需要同時包含 Hooks 的唯讀檢視。
+目前無。第一個 Skills 之後的擴充階段已確定先加入 Hooks 唯讀檢視，再另行提案編輯、寫入與 backup。
