@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-11
+最後更新：2026-08-12
 
 ## 1. 專案摘要
 
@@ -191,7 +191,7 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 0：建立 Fork 與基準線
 
-目前狀態（2026-08-09）：基準 build 與 tests 已通過，npm 與 Rust production audits 均為 0 vulnerabilities。`quick-xml`、`rkyv`、`rustls-webpki` 與 `tar` 的 production advisories 已完成相容修復；Phase 0 的技術驗證已完成，目前 working tree 等待提交與歸檔。
+目前狀態（2026-08-12）：已完成。Fork 與 upstream 來源、MIT License、起點 commit 與 tag 均已記錄；基準 build、tests 與 production dependency audits 均已通過。`quick-xml`、`rkyv`、`rustls-webpki` 與 `tar` 的 production advisories 已完成相容修復，相關 Spectra changes 已歸檔。
 
 - 從 `xingkongliang/skills-manager` 建立本機 repo。
 - 設定自己的 `origin` 與原作者的 `upstream`。
@@ -204,6 +204,8 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 1：Codex 路徑與 Library 基礎
 
+目前狀態（2026-08-12）：已完成。Codex 現代／legacy Skill 路徑的部署、掃描、去重與 override 已實作；外接 Library offline 時的可用性偵測、寫入封鎖與安全恢復也已完成，相關 Spectra changes 已歸檔。
+
 - 調整 Codex adapter，以 `.agents/skills` 為新部署預設。
 - 保留 `.codex/skills` 掃描與 legacy 支援。
 - 新增路徑去重與使用者 override。
@@ -212,6 +214,8 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 完成標準：能正確掃描兩種 Codex 路徑，且外接 Library 離線不會觸發刪除。
 
 ### Phase 2：AgentDeck Board 與 Description
+
+目前狀態（2026-08-12）：已完成。Library／Codex／Claude／Both 四欄 Board、drag-and-drop、固定 Inspector、兩行 summary、Board／List 狀態共用與 Skill 包操作已實作，相關 Spectra change 已歸檔。
 
 - 改造主畫面為 Library／Codex／Claude／Both 四欄。
 - 使用專案既有 drag-and-drop 依賴。
@@ -223,6 +227,8 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 完成標準：使用者可用拖曳或勾選改變部署目標，資料不會因跨欄產生重複副本。
 
 ### Phase 3：Artifact 基礎模型
+
+目前狀態（2026-08-12）：下一階段，尚未實作。實作前先建立 Spectra change，固定 Artifact identity、deployment target、database migration、backup protocol 與舊資料相容邊界。
 
 - 新增 Artifact type 與 deployment target 資料模型。
 - 建立資料庫 migration。
@@ -276,11 +282,11 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 - 外接 Library 拔除或 unmount 的 offline 測試。
 - 套用、取消與回復流程的人工 GUI 驗證。
 
-上游研究時的基準結果：
+目前已驗證的基準結果（2026-08-12）：
 
 - 前端 production build 通過。
-- Rust tests：402 passed，0 failed。
-- 當時 production dependency audit 發現 `react-router` 與 `react-router-dom` 的 high severity advisories；正式開發前需重新確認版本並升級，不直接假設問題仍相同。
+- Rust tests：514 passed，0 failed。
+- npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
 
@@ -293,19 +299,13 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一位接手者先做 Phase 0，不直接開始改 UI：
+下一階段是 Phase 3，不直接實作 Hooks、Plugins 或 Config Profiles：
 
-1. 確認使用者要使用哪個 GitHub 帳號／repo 作為 `origin`；若尚未建立遠端，先建立本機 Git repo 並保留之後設定 origin 的空間。
-2. 將上游 clone 到本資料夾。因本資料夾已有 `plan.md`，clone 時不可直接覆蓋；可先在暫存子目錄取得上游，再安全搬入或合併。
-3. 設定 `upstream` 指向 `https://github.com/xingkongliang/skills-manager.git`。
-4. 記錄實際起點 commit 與 tag。
-5. 執行基準 build、tests 與 dependency audit，把結果更新到本文件。
-6. 只在基準線確認後開始 Phase 1。
+1. 先為 Artifact 基礎模型建立並驗證 Spectra proposal、design、spec 與 tasks。
+2. 固定 Artifact type、deployment target 與現有 SkillRecord 的邊界，不把不同 Artifact 格式塞入同一資料表。
+3. 定義 database migration、backup protocol 版本與舊資料無損升級的驗收方式。
+4. 只在 Phase 3 artifacts 通過 Spectra analyze 與 validate 後開始實作。
 
 ## 13. 尚待使用者決定
 
-- GitHub fork 的帳號、repo 名稱與是否現在建立遠端。
-- 最終產品名稱是否維持 `AgentDeck`，以及 macOS bundle identifier。
-- 發佈範圍：個人使用、開源發佈或簽名後公開下載。
-- Skill Library 是否維持內部磁碟預設，或讓首次設定流程主動詢問位置。
 - 第一個可用版本只做 Skills，還是需要同時包含 Hooks 的唯讀檢視。
