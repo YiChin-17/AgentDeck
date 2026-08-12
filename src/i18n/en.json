@@ -13,7 +13,8 @@
     "newPreset": "New Skill Pack",
     "projects": "Project Workspaces",
     "addProject": "Link Project",
-    "settings": "Settings"
+    "settings": "Settings",
+    "hooks": "Hooks"
   },
   "help": {
     "eyebrow": "Guide",
@@ -1110,6 +1111,92 @@
       "syncState": "Sync state",
       "openDiff": "View diff",
       "openDetails": "Open full details"
+    }
+  },
+  "hooks": {
+    "title": "Hooks",
+    "subtitle": "Read-only view of the Hook configuration Codex and Claude Code load.",
+    "readOnlyBadge": "Read-only",
+    "projectLabel": "Project",
+    "projectNone": "User scope only",
+    "invalidProject": "That Project is no longer linked. Pick another Project.",
+    "loadFailed": "Hook inspection could not be loaded.",
+    "filter": {
+      "agent": "Agent",
+      "scope": "Scope",
+      "event": "Event",
+      "status": "Source status",
+      "all": "All"
+    },
+    "agent": {
+      "codex": "Codex",
+      "claude_code": "Claude Code"
+    },
+    "scope": {
+      "user": "User",
+      "project": "Project",
+      "project_local": "Project local"
+    },
+    "status": {
+      "valid": "Valid",
+      "missing": "Not present",
+      "invalid": "Invalid",
+      "too_large": "Too large"
+    },
+    "diagnostic": {
+      "not_readable": "Could not be read",
+      "invalid_encoding": "Not valid UTF-8",
+      "invalid_syntax": "Syntax error",
+      "invalid_shape": "Unexpected Hook structure",
+      "too_large": "Above the read limit"
+    },
+    "sourcesHeading": "Sources",
+    "entriesHeading": "Hooks",
+    "entryCount": "{{count}} Hook handler(s)",
+    "missingHint": "No Hook configuration at this location.",
+    "noSources": "No source matches the current filters.",
+    "noEntries": "No Hook matches the current filters.",
+    "noMatcher": "No matcher",
+    "noHandlerType": "No type",
+    "unknown": "Unknown",
+    "compareHeading": "Compare sources",
+    "comparePick": "Pick a source",
+    "compareRefusal": {
+      "pick_two": "Pick two sources of the same Agent and format to compare.",
+      "same_source": "Pick two different sources.",
+      "cross_agent": "Codex and Claude Code use different config grammars, so their text is not compared. Use the compatibility matrix instead.",
+      "format_mismatch": "JSON and TOML sources are not text-compared.",
+      "not_diffable": "One of the sources is missing, invalid, or above the comparison limit."
+    },
+    "matrixHeading": "Compatibility",
+    "matrixName": "Name",
+    "matrixSnapshot": "From the {{date}} documentation snapshot. Equal names do not imply equal runtime behavior.",
+    "category": {
+      "event": "event",
+      "handler": "handler"
+    },
+    "support": {
+      "supported": "Supported",
+      "unsupported": "Not supported",
+      "unknown": "Unknown"
+    },
+    "note": {
+      "shared_name_distinct_contract": "same name, Agent-specific contract",
+      "not_in_snapshot": "absent from this Agent's snapshot",
+      "parsed_but_skipped": "parsed but not executed"
+    },
+    "inspector": {
+      "title": "Hook detail",
+      "agent": "Agent",
+      "scope": "Scope",
+      "source": "Source",
+      "event": "Event",
+      "matcher": "Matcher",
+      "handlerType": "Handler type",
+      "position": "Position",
+      "positionValue": "matcher group {{group}}, handler {{handler}}",
+      "fields": "Handler fields",
+      "noFields": "This handler declares no fields."
     }
   }
 }

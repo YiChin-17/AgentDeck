@@ -13,7 +13,8 @@
     "newPreset": "新增 Skill 包",
     "projects": "專案工作區",
     "addProject": "關聯專案",
-    "settings": "設定"
+    "settings": "設定",
+    "hooks": "Hooks"
   },
   "help": {
     "eyebrow": "操作指南",
@@ -1110,6 +1111,92 @@
       "syncState": "同步狀態",
       "openDiff": "檢視差異",
       "openDetails": "開啟完整詳情"
+    }
+  },
+  "hooks": {
+    "title": "Hooks",
+    "subtitle": "唯讀檢視 Codex 與 Claude Code 實際載入的 Hook 設定。",
+    "readOnlyBadge": "唯讀",
+    "projectLabel": "專案",
+    "projectNone": "只看 user scope",
+    "invalidProject": "這個專案已不在關聯清單中，請改選其他專案。",
+    "loadFailed": "無法載入 Hook 檢視結果。",
+    "filter": {
+      "agent": "Agent",
+      "scope": "範圍",
+      "event": "事件",
+      "status": "來源狀態",
+      "all": "全部"
+    },
+    "agent": {
+      "codex": "Codex",
+      "claude_code": "Claude Code"
+    },
+    "scope": {
+      "user": "使用者",
+      "project": "專案",
+      "project_local": "專案本機"
+    },
+    "status": {
+      "valid": "正常",
+      "missing": "不存在",
+      "invalid": "格式錯誤",
+      "too_large": "檔案過大"
+    },
+    "diagnostic": {
+      "not_readable": "無法讀取",
+      "invalid_encoding": "不是有效的 UTF-8",
+      "invalid_syntax": "語法錯誤",
+      "invalid_shape": "Hook 結構不符預期",
+      "too_large": "超過讀取上限"
+    },
+    "sourcesHeading": "來源",
+    "entriesHeading": "Hook 清單",
+    "entryCount": "{{count}} 個 Hook handler",
+    "missingHint": "這個位置沒有 Hook 設定。",
+    "noSources": "沒有符合目前篩選的來源。",
+    "noEntries": "沒有符合目前篩選的 Hook。",
+    "noMatcher": "沒有 matcher",
+    "noHandlerType": "沒有 type",
+    "unknown": "未知",
+    "compareHeading": "比較來源",
+    "comparePick": "選擇來源",
+    "compareRefusal": {
+      "pick_two": "請選兩個同一個 Agent、同一種格式的來源。",
+      "same_source": "請選兩個不同的來源。",
+      "cross_agent": "Codex 與 Claude Code 的設定語法不同，不做文字比較；跨 Agent 差異請看相容性表。",
+      "format_mismatch": "JSON 與 TOML 來源不做文字比較。",
+      "not_diffable": "其中一個來源不存在、格式錯誤，或超過比較上限。"
+    },
+    "matrixHeading": "相容性",
+    "matrixName": "名稱",
+    "matrixSnapshot": "來自 {{date}} 的官方文件快照。名稱相同不代表執行行為相同。",
+    "category": {
+      "event": "事件",
+      "handler": "handler"
+    },
+    "support": {
+      "supported": "支援",
+      "unsupported": "不支援",
+      "unknown": "未知"
+    },
+    "note": {
+      "shared_name_distinct_contract": "名稱相同，但各 Agent 的契約不同",
+      "not_in_snapshot": "不在這個 Agent 的文件快照中",
+      "parsed_but_skipped": "會被解析但不會執行"
+    },
+    "inspector": {
+      "title": "Hook 細節",
+      "agent": "Agent",
+      "scope": "範圍",
+      "source": "來源",
+      "event": "事件",
+      "matcher": "Matcher",
+      "handlerType": "Handler 類型",
+      "position": "位置",
+      "positionValue": "第 {{group}} 個 matcher 群組、第 {{handler}} 個 handler",
+      "fields": "Handler 欄位",
+      "noFields": "這個 handler 沒有其他欄位。"
     }
   }
 }

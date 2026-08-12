@@ -12,6 +12,7 @@ pub mod git_backup;
 pub mod git_credentials;
 pub mod git_fetcher;
 pub mod github_api;
+pub mod hook_inspection;
 pub mod install_cancel;
 pub mod library_availability;
 pub mod installer;

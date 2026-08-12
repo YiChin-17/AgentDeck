@@ -1054,6 +1054,8 @@ pub fn run() {
             commands::git_backup::git_backup_pending_conflicts,
             commands::git_backup::git_backup_resolve_conflict,
             commands::git_backup::git_backup_sync,
+            // Hooks (read-only inspection)
+            commands::hooks::get_hook_inspection,
             // Projects
             commands::projects::get_projects,
             commands::projects::add_project,

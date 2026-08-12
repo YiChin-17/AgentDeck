@@ -831,3 +831,81 @@ export const updateGlobalLocalSkillFromCenter = (agent: string, skillPath: strin
 
 export const deleteGlobalLocalSkill = (agent: string, skillPath: string) =>
   invoke<void>("delete_global_local_skill", { agent, skillPath });
+
+// ── Hooks (read-only inspection) ──
+
+export type HookAgentKey = "codex" | "claude_code";
+export type HookScopeKey = "user" | "project" | "project_local";
+export type HookFormatKey = "json" | "toml";
+export type HookSourceStatusKey = "missing" | "valid" | "invalid" | "too_large";
+export type HookDiagnosticKindKey =
+  | "not_readable"
+  | "invalid_encoding"
+  | "invalid_syntax"
+  | "invalid_shape"
+  | "too_large";
+export type HookSupportKey = "supported" | "unsupported" | "unknown";
+
+export interface HookDiagnostic {
+  sourceId: string;
+  kind: HookDiagnosticKindKey;
+  message: string;
+}
+
+export interface HookSource {
+  id: string;
+  agent: HookAgentKey;
+  scope: HookScopeKey;
+  format: HookFormatKey;
+  displayPath: string;
+  status: HookSourceStatusKey;
+  diagnostic: HookDiagnostic | null;
+  entryCount: number;
+  canonicalText: string;
+  diffAvailable: boolean;
+}
+
+export interface HookField {
+  key: string;
+  value: string;
+  known: boolean;
+}
+
+export interface HookEntry {
+  id: string;
+  sourceId: string;
+  agent: HookAgentKey;
+  scope: HookScopeKey;
+  event: string;
+  eventKnown: boolean;
+  matcher: string | null;
+  groupIndex: number;
+  handlerIndex: number;
+  handlerType: string;
+  handlerTypeKnown: boolean;
+  fields: HookField[];
+}
+
+export interface CompatibilityCell {
+  support: HookSupportKey;
+  note: string | null;
+}
+
+export interface CompatibilityRow {
+  category: "event" | "handler";
+  name: string;
+  codex: CompatibilityCell;
+  claudeCode: CompatibilityCell;
+}
+
+export interface HookInspection {
+  sources: HookSource[];
+  entries: HookEntry[];
+  compatibility: CompatibilityRow[];
+  selectedProjectId: string | null;
+  snapshotDate: string;
+  generatedAt: number;
+}
+
+export const getHookInspection = (projectId: string | null) =>
+  invoke<HookInspection>("get_hook_inspection", { projectId });
