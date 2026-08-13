@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-12
+最後更新：2026-08-13
 
 ## 1. 專案摘要
 
@@ -239,11 +239,11 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 4：Hooks
 
-目前狀態（2026-08-12）：下一階段。第一個 Spectra change 先交付 Codex／Claude Code Hooks 的唯讀 discovery、來源檢視、設定差異與 compatibility matrix；不寫回設定、不執行 Hook，也不升級 backup protocol。
+目前狀態（2026-08-13）：進行中。第一個 Spectra change `inspect-codex-claude-hooks` 已完成並歸檔，交付 Codex／Claude Code Hooks 的唯讀 discovery、來源檢視、設定差異與 compatibility matrix。下一個 change 加入表單編輯、Agent-specific schema validation、write preview、可回復備份與 atomic write；仍不執行 Hook。
 
-- 先做讀取、檢視與 diff。
-- 再加入表單編輯、schema validation、backup 與 atomic write。
-- 加入 Codex／Claude compatibility matrix。
+- [x] 先做讀取、檢視與 diff。
+- [ ] 加入表單編輯、Agent-specific schema validation、write preview、backup 與 atomic write。
+- [x] 加入 Codex／Claude compatibility matrix。
 
 完成標準：能安全讀寫兩者 Hooks，格式錯誤時不覆蓋原檔。
 
@@ -284,10 +284,10 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 - 外接 Library 拔除或 unmount 的 offline 測試。
 - 套用、取消與回復流程的人工 GUI 驗證。
 
-目前已驗證的基準結果（2026-08-12）：
+目前已驗證的基準結果（2026-08-13）：
 
 - 前端 production build 通過。
-- Rust tests：551 passed，0 failed。
+- Rust tests：586 passed，0 failed。
 - npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
@@ -301,13 +301,15 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 4 的 Hooks 唯讀檢視，不直接加入編輯、寫入、backup 或 Plugin／Config Profile 功能：
+下一階段是 Phase 4 的 Hooks 安全編輯與寫入，不直接加入 Hook 執行、Plugin 或 Config Profile 功能：
 
-1. 先為 Codex／Claude Code Hook discovery、來源檢視、同 Agent 設定層 diff 與 compatibility matrix 建立並驗證 Spectra proposal、design、spec 與 tasks。
-2. Codex 讀取 global／project 的 `hooks.json` 與 `config.toml` inline hooks；Claude Code 讀取 user／project／project-local `settings.json` hooks，保留來源與 scope。
-3. 格式錯誤要以來源層級診斷呈現，不能讓單一壞檔阻止其他來源顯示；唯讀階段不得寫檔、執行 Hook 或建立 deployment。
-4. 只在 Phase 4 第一個 change 的 artifacts 通過 Spectra analyze 與 validate 後開始實作。
+1. 以既有 `hook-inspection` source id 與 linked Project 邊界選定可寫來源，frontend 仍不得傳入任意 filesystem path。
+2. 依 Codex／Claude Code 各自 schema 編輯 event、matcher 與 handler fields；未知欄位、JSON sibling keys、TOML 註解與排序必須在 round-trip 後保留。
+3. 寫入前產生實際設定檔 diff，驗證失敗或來源在預覽後被外部修改時拒絕套用，不覆蓋較新的內容。
+4. 套用時先建立可回復備份，再以同目錄暫存檔與 atomic replacement 寫入；任一步驟失敗都不得留下部分寫入或損壞原檔。
+5. 明確定義 Hook Artifact identity、backup metadata 與 restore 邊界，但不得把 Hook command、prompt、URL、headers 或其他敏感內容寫入 SQLite、一般 Library、logs 或 Git backup。
+6. 只在下一個 Spectra change 的 proposal、design、spec 與 tasks 通過 analyze 與 validate 後開始實作。
 
 ## 13. 尚待使用者決定
 
-目前無。第一個 Skills 之後的擴充階段已確定先加入 Hooks 唯讀檢視，再另行提案編輯、寫入與 backup。
+目前無。Hooks 唯讀檢視已完成；下一個 change 的範圍固定為安全編輯、驗證、預覽、backup、atomic write 與 restore，不包含 Hook 執行。
