@@ -249,12 +249,20 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 5：Plugins
 
-目前狀態（2026-08-13）：準備第一個 Spectra change。已確認本機 Codex CLI 0.144.5 與 Claude Code 2.1.229 都提供 Plugin JSON inventory；第一個 change 只建立固定參數的唯讀 CLI adapters、正規化 inventory 與 Plugins 頁面，不執行安裝、更新、移除或 enable／disable。
+目前狀態（2026-08-13）：第一個 change `inspect-codex-claude-plugins` 已完成並歸檔。Codex／Claude Code 固定參數唯讀 CLI adapters、bounded inventory、Agent-specific normalization、隔離診斷與 Plugins 頁面已實作；完整 Rust suite 699 tests、frontend build、lint、i18n 與 Plugins UI contract 均通過。下一個 change 依本機 Codex CLI 0.144.5 與 Claude Code 2.1.231 的實際 help contract，加入 user scope 的安全 Plugin mutation preview 與執行。
 
-- [ ] 建立 Codex 與 Claude 唯讀 CLI capability adapters，限制 executable 與參數組合。
-- [ ] 解析 CLI JSON 輸出並正規化 installed／available／version／scope／marketplace／enabled／update 狀態。
-- [ ] 顯示 Agent、狀態、scope 與 marketplace filters，以及來源診斷與 Plugin details。
+- [x] 建立 Codex 與 Claude 唯讀 CLI capability adapters，限制 executable 與參數組合。
+- [x] 解析 CLI JSON 輸出並正規化 installed／available／version／scope／marketplace／enabled／update 狀態。
+- [x] 顯示 Agent、狀態、scope 與 marketplace filters，以及來源診斷與 Plugin details。
 - [ ] 依 CLI 實際能力，在後續 change 加入 install、update、remove、enable、disable。
+
+下一個 change 的邊界：
+
+- Codex 只提供 user scope 的 add／remove；不把重新 add 推測成 update，也不提供 CLI 未宣告的 enable／disable。
+- Claude Code 提供 user scope 的 install／update／uninstall／enable／disable，所有 scope 都顯式傳入 `user`。
+- GUI 先產生 Agent、operation、Plugin identity、scope 與固定 argv 的 preview；使用者確認相同 preview token 後才執行，外部 inventory 變更會使 token 失效。
+- 不傳 `-y`、`--config`、`--keep-data`、`--prune`、`--all`、任意 cwd／environment 或 caller-controlled arguments；需要互動確認的 marketplace command 回報 typed diagnostic，不自動接受外部命令。
+- project／local scope mutation、marketplace mutation、validation、details、eval、Plugin payload inspection 與 persistent Plugin Artifact 仍不在此 change。
 
 完成標準：常用 Plugin 操作能從同一 GUI 完成，官方 cache 與登入資料不被直接改寫。
 
@@ -303,15 +311,16 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 5 的 Plugin 唯讀 inventory，不直接加入 Plugin mutation、Hook 執行或 Config Profile 功能：
+下一階段是 Phase 5 的 user-scope Plugin mutation，不加入 project／local scope、marketplace mutation、Hook 執行或 Config Profile 功能：
 
-1. 以固定 executable 與 allowlist 參數呼叫 `codex plugin list --available --json`、`codex plugin marketplace list --json` 與 `claude plugin list --available --json`；frontend 不得提交 executable、filesystem path 或任意 CLI arguments。
-2. 先偵測 Codex／Claude Code CLI 是否存在及版本，再將 JSON 正規化為 AgentDeck 自己的 Plugin DTO；Agent-specific 未提供的欄位必須標記 unknown，不得猜測或跨 Agent 補值。
-3. CLI timeout、非零 exit、invalid JSON、oversized output、缺少 CLI 與離線 marketplace 必須各自產生 sanitized diagnostics；單一 Agent 失敗不得隱藏另一個 Agent 的 inventory。
-4. Plugins 頁面顯示 installed／available、version、scope、marketplace、enabled 與 update 狀態，以及 Agent／狀態／scope／marketplace filters 與 read-only details。
-5. Plugin inventory 不建立 Artifact、deployment 或 cache rows，不讀寫官方 Plugin cache，不保存 CLI stdout、token、登入資訊、marketplace credentials 或任意 Plugin payload到 SQLite、Library、logs、localStorage 或 Git backup。
-6. 只在下一個 Spectra change 的 proposal、design、spec 與 tasks 通過 analyze 與 validate 後開始實作；install、update、remove、enable、disable 留給後續 change。
+1. Codex capability matrix 固定為 add／remove；Claude Code capability matrix 固定為 install／update／uninstall／enable／disable。frontend 只能提交 Agent、operation 與 inventory 中的 Plugin identity，不能提交 executable、filesystem path、cwd、environment 或任意 CLI arguments。
+2. mutation 分成 preview 與 apply：preview 回傳固定 argv 的非敏感顯示、base inventory fingerprint 與一次性 token；apply 必須匹配 Agent、operation、Plugin identity、user scope 與未過期 fingerprint，否則不啟動 CLI。
+3. 所有 process 維持 no-shell、closed stdin、bounded stdout／stderr、timeout、kill／reap 與 sanitized diagnostics；禁止 `-y`、`--config`、`--keep-data`、`--prune`、`--all`，需要 TTY 或 marketplace 外部命令確認時回報 typed `interactive_confirmation_required`。
+4. apply 成功後重新取得 inventory，GUI 只在新 inventory 證明目標狀態後顯示成功；timeout、non-zero exit、invalid JSON、stale preview 或 refresh failure 不得以 optimistic state 宣告成功。
+5. Plugins 頁面只對 capability matrix 與有效 item state 顯示操作；Claude 要求 user-scope record，Codex 則由 fixed add／remove contract 定義 user scope並保留 inventory 的 `unknown`。具破壞性的 remove／uninstall 要清楚顯示 Agent、Plugin、marketplace 與 preview scope，並使用同一 preview 進行二次確認。
+6. mutation 不直接讀寫官方 Plugin cache、不建立 Plugin Artifact／deployment／Library copy／Git backup metadata，也不記錄 stdout、stderr、token、登入資訊、marketplace credentials 或 Plugin payload。
+7. proposal、design、spec 與 tasks 必須通過 `spectra analyze` 與 `spectra validate` 後 park；本輪不直接實作。
 
 ## 13. 尚待使用者決定
 
-目前無。Hooks 階段已完成；下一個 change 的範圍固定為 Codex／Claude Code Plugin CLI capability detection、唯讀 inventory 正規化與 Plugins 頁面，不包含任何 Plugin mutation。
+目前無。Plugin 唯讀 inventory 已完成；下一個 change 的範圍固定為 user-scope Plugin mutation preview 與執行，不包含 project／local scope、marketplace mutation、Plugin payload inspection 或 persistent Plugin model。
