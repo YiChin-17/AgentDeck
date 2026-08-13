@@ -1115,8 +1115,7 @@
   },
   "hooks": {
     "title": "Hooks",
-    "subtitle": "唯讀檢視 Codex 與 Claude Code 實際載入的 Hook 設定。",
-    "readOnlyBadge": "唯讀",
+    "subtitle": "檢視 Codex 與 Claude Code 讀取的 Hook 設定，並透過預覽進行編輯。",
     "projectLabel": "專案",
     "projectNone": "只看 user scope",
     "invalidProject": "這個專案已不在關聯清單中，請改選其他專案。",
@@ -1197,6 +1196,66 @@
       "positionValue": "第 {{group}} 個 matcher 群組、第 {{handler}} 個 handler",
       "fields": "Handler 欄位",
       "noFields": "這個 handler 沒有其他欄位。"
+    },
+    "gatedEditBadge": "編輯需先預覽",
+    "edit": {
+      "editTitle": "編輯 Hook handler",
+      "createTitle": "建立第一個 Hook handler",
+      "edit": "編輯",
+      "createFirst": "建立第一個 handler",
+      "event": "事件",
+      "matcher": "Matcher",
+      "handlerType": "Handler 類型",
+      "unset": "未設定",
+      "unknownFields": "此 Agent 快照未記載的值。它們會原樣保留，無法在這裡編輯。",
+      "preview": "預覽",
+      "apply": "套用",
+      "delete": "刪除",
+      "applied": "已套用。",
+      "diffHeading": "這次寫入會造成的 Hook 差異",
+      "wouldCreateFile": "這次寫入會建立設定檔。",
+      "failed": "Hook 變更未能完成。",
+      "restoreHeading": "回復點",
+      "noRecovery": "AgentDeck 尚未寫入這個來源，沒有可回復的內容。",
+      "recoveryReady": "來源仍與上次寫入一致，可以回復。",
+      "recoveryStale": "上次寫入後來源已被改動。請先預覽回復內容再套用。",
+      "restorePreview": "預覽回復",
+      "restoreApply": "回復",
+      "shape": {
+        "text": "文字",
+        "integer": "非負整數",
+        "bool": "true 或 false",
+        "text_list": "JSON 文字陣列",
+        "table": "JSON 物件",
+        "any": "值"
+      },
+      "issue": {
+        "unknown_event": "此 Agent 的快照沒有記載這個事件。",
+        "unknown_handler_type": "此 Agent 的快照沒有記載這個 handler 類型。",
+        "unknown_field": "這個欄位無法透過 AgentDeck 設定。",
+        "invalid_value_type": "這個值不符合該欄位接受的形態。",
+        "missing_value": "這個 handler 類型需要這個值。",
+        "preview_too_large": "Hook 設定過大，無法在這裡比對差異。"
+      },
+      "refusal": {
+        "invalid": "這個來源的語法修正前無法編輯，請先在 AgentDeck 之外修好。",
+        "too_large": "這個來源超過讀取上限，無法在這裡編輯。"
+      },
+      "error": {
+        "invalid_project": "這個 Project 已不再連結。",
+        "invalid_source": "這不是 AgentDeck 管理的 Hook 來源。",
+        "source_offline": "Project 根目錄無法存取，未寫入任何內容。",
+        "unsupported_source_type": "這個位置不是 AgentDeck 可寫入的一般設定檔。",
+        "invalid_hook_draft": "有些值不被此 Agent 接受，請修正標示的欄位。",
+        "stale_draft": "該 handler 已不在原本的位置，請重新載入後再試。",
+        "source_conflict": "預覽之後檔案被改動過，請重新載入並重新預覽。",
+        "preview_too_large": "Hook 設定過大，無法預覽。",
+        "backup_failed": "無法建立回復點，未寫入任何內容。",
+        "atomic_replace_unsupported": "這個平台無法安全替換檔案，未寫入任何內容。",
+        "write_failed": "寫入未完成，檔案維持原樣。",
+        "restore_failed": "無法使用該回復點，檔案維持原樣。",
+        "recovery_required": "有一次中斷的 Hook 寫入需要先回復，才能繼續變更。"
+      }
     }
   }
 }

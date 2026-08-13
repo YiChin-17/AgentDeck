@@ -3,6 +3,7 @@ import { AlertTriangle, FileQuestion, Loader2, RefreshCw, ShieldCheck } from "lu
 import { useTranslation } from "react-i18next";
 import { cn } from "../utils";
 import { DocumentDiffViewer } from "../components/DocumentDiffViewer";
+import { HookEditor } from "../components/HookEditor";
 import { HookInspector } from "../components/HookInspector";
 import { useApp } from "../context/AppContext";
 import { getErrorMessage } from "../lib/error";
@@ -37,6 +38,16 @@ function compareRefusal(left: HookSource | null, right: HookSource | null): stri
   if (left.format !== right.format) return "format_mismatch";
   if (!left.diffAvailable || !right.diffAvailable) return "not_diffable";
   return null;
+}
+
+/**
+ * Only a regular source and a missing one under an existing root can be
+ * written. Everything else keeps its inspection and diagnostics, but no
+ * mutation control is rendered at all.
+ */
+function editRefusal(source: HookSource): string | null {
+  if (source.status === "valid" || source.status === "missing") return null;
+  return source.status;
 }
 
 function supportTone(support: HookSupportKey): string {
@@ -81,6 +92,11 @@ export function Hooks() {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [compareLeftId, setCompareLeftId] = useState<string>("");
   const [compareRightId, setCompareRightId] = useState<string>("");
+  // Draft, preview and recovery selection live here and nowhere else: none of
+  // it goes to AppContext or localStorage, so a Project switch drops it.
+  const [editor, setEditor] = useState<{ sourceId: string; entryId: string | null } | null>(
+    null
+  );
   // Guards against a slow earlier response overwriting a newer selection.
   const requestIdRef = useRef(0);
 
@@ -114,7 +130,13 @@ export function Hooks() {
     setSelectedEntryId(null);
     setCompareLeftId("");
     setCompareRightId("");
+    setEditor(null);
   }, [data]);
+
+  // A pending response for the previous Project must not reopen its editor.
+  useEffect(() => {
+    setEditor(null);
+  }, [projectId]);
 
   const visibleSources = useMemo<HookSource[]>(() => {
     if (!data) return [];
@@ -150,6 +172,20 @@ export function Hooks() {
     [visibleEntries, selectedEntryId]
   );
 
+  const isWritable = useCallback(
+    (id: string) => {
+      const source = sourceById(id);
+      return source !== null && editRefusal(source) === null;
+    },
+    [sourceById]
+  );
+
+  const editorSource = editor ? sourceById(editor.sourceId) : null;
+  const editorEntry = useMemo(
+    () => (editor?.entryId ? visibleEntries.find((e) => e.id === editor.entryId) ?? null : null),
+    [editor, visibleEntries]
+  );
+
   const compareLeft = sourceById(compareLeftId);
   const compareRight = sourceById(compareRightId);
   const refusal = compareRefusal(compareLeft, compareRight);
@@ -165,7 +201,7 @@ export function Hooks() {
         </div>
         <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-3 py-1 text-xs text-[var(--color-text-secondary)]">
           <ShieldCheck className="h-3.5 w-3.5" />
-          {t("hooks.readOnlyBadge")}
+          {t("hooks.gatedEditBadge")}
         </span>
       </header>
 
@@ -312,6 +348,21 @@ export function Hooks() {
                       {t("hooks.missingHint")}
                     </p>
                   )}
+                  {editRefusal(source) ? (
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                      {t(`hooks.edit.refusal.${editRefusal(source)}`)}
+                    </p>
+                  ) : (
+                    source.status === "missing" && (
+                      <button
+                        type="button"
+                        className="self-start rounded border border-[var(--color-border)] px-2 py-1 text-xs"
+                        onClick={() => setEditor({ sourceId: source.id, entryId: null })}
+                      >
+                        {t("hooks.edit.createFirst")}
+                      </button>
+                    )
+                  )}
                   {source.diagnostic && (
                     <p className="inline-flex items-start gap-1 text-xs text-amber-500">
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -341,7 +392,7 @@ export function Hooks() {
             ) : (
               <ul className="flex flex-col gap-1">
                 {visibleEntries.map((entry) => (
-                  <li key={entry.id}>
+                  <li key={entry.id} className="flex items-stretch gap-1">
                     <button
                       type="button"
                       onClick={() => setSelectedEntryId(entry.id)}
@@ -368,11 +419,34 @@ export function Hooks() {
                         {entry.handlerType || t("hooks.noHandlerType")}
                       </span>
                     </button>
+                    {isWritable(entry.sourceId) && (
+                      <button
+                        type="button"
+                        className="rounded border border-[var(--color-border)] px-2 text-xs"
+                        onClick={() => setEditor({ sourceId: entry.sourceId, entryId: entry.id })}
+                      >
+                        {t("hooks.edit.edit")}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </section>
+
+          {editorSource && (
+            <HookEditor
+              key={`${projectId ?? "user"}:${editorSource.id}:${editor?.entryId ?? "new"}`}
+              projectId={projectId}
+              source={editorSource}
+              entry={editorEntry}
+              registry={
+                editorSource.agent === "codex" ? data.registry.codex : data.registry.claudeCode
+              }
+              onApplied={() => void load(projectId)}
+              onClose={() => setEditor(null)}
+            />
+          )}
 
           {selectedEntry && (
             <HookInspector

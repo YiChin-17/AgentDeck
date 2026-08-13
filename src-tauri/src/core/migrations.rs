@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use rusqlite::Connection;
 
 /// Current schema version. Bump this when adding a new migration.
-const LATEST_VERSION: u32 = 8;
+const LATEST_VERSION: u32 = 9;
 
 /// Run all pending migrations on the database.
 ///
@@ -55,6 +55,7 @@ fn migrate_step(conn: &Connection, from_version: u32) -> Result<()> {
         5 => migrate_v5_to_v6(conn),
         6 => migrate_v6_to_v7(conn),
         7 => migrate_v7_to_v8(conn),
+        8 => migrate_v8_to_v9(conn),
         _ => bail!("unknown migration version: {from_version}"),
     }
 }
@@ -402,6 +403,76 @@ fn migrate_v7_to_v8(conn: &Connection) -> Result<()> {
     // Only now is the legacy table redundant.
     conn.execute("DROP TABLE skill_targets", [])?;
 
+    Ok(())
+}
+
+/// v8 → v9: Hook identity and recovery metadata.
+///
+/// Pure DDL: no existing row is read or rewritten, and nothing is seeded. A
+/// managed Hook source only gets an identity when a write actually succeeds,
+/// so a user who never edits a Hook keeps an empty pair of tables.
+///
+/// Neither table has a column for Hook content or for the source path. Content
+/// would put commands, prompts, URLs and headers into a file that is backed up
+/// and synced; the path is re-derived from the fixed descriptor and the Project
+/// record on every use, so it cannot go stale.
+fn migrate_v8_to_v9(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE hook_details (
+            artifact_id TEXT PRIMARY KEY REFERENCES artifacts(id) ON DELETE CASCADE,
+            source_id TEXT NOT NULL,
+            context_key TEXT NOT NULL,
+            agent TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            format TEXT NOT NULL CHECK(format IN ('json', 'toml')),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(source_id, context_key),
+            CHECK(context_key = 'global' OR context_key LIKE 'project:_%')
+        );
+
+        CREATE TABLE hook_backups (
+            id TEXT PRIMARY KEY,
+            artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK(kind IN ('bytes', 'absent')),
+            before_hash TEXT NOT NULL,
+            after_hash TEXT NOT NULL,
+            locator TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            restored_at INTEGER,
+            UNIQUE(artifact_id)
+        );
+
+        CREATE INDEX idx_hook_details_source ON hook_details(source_id, context_key);
+
+        -- A CHECK cannot reach the parent row, so the kind constraint that makes
+        -- these detail tables belong to Hook Artifacts is carried by triggers.
+        CREATE TRIGGER hook_details_require_hook_kind_insert
+        BEFORE INSERT ON hook_details
+        FOR EACH ROW
+        WHEN (SELECT kind FROM artifacts WHERE id = NEW.artifact_id) IS NOT 'hook'
+        BEGIN
+            SELECT RAISE(ABORT, 'hook detail requires a kind hook artifact');
+        END;
+
+        CREATE TRIGGER hook_details_require_hook_kind_update
+        BEFORE UPDATE ON hook_details
+        FOR EACH ROW
+        WHEN (SELECT kind FROM artifacts WHERE id = NEW.artifact_id) IS NOT 'hook'
+        BEGIN
+            SELECT RAISE(ABORT, 'hook detail requires a kind hook artifact');
+        END;
+
+        CREATE TRIGGER hook_backups_require_hook_kind_insert
+        BEFORE INSERT ON hook_backups
+        FOR EACH ROW
+        WHEN (SELECT kind FROM artifacts WHERE id = NEW.artifact_id) IS NOT 'hook'
+        BEGIN
+            SELECT RAISE(ABORT, 'hook backup requires a kind hook artifact');
+        END;
+        ",
+    )?;
     Ok(())
 }
 
@@ -823,7 +894,7 @@ mod tests {
         let version: u32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, LATEST_VERSION);
 
         for (table, expected) in untouched.iter().zip(before.iter()) {
             assert_eq!(&dump_table(&conn, table), expected, "table {table} changed");
@@ -909,7 +980,7 @@ mod tests {
         let version: u32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, LATEST_VERSION);
         assert!(table_exists(&conn, "artifacts"));
         assert!(table_exists(&conn, "artifact_deployments"));
         assert!(!table_exists(&conn, "skill_targets"));
@@ -957,7 +1028,7 @@ mod tests {
         let version: u32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, LATEST_VERSION);
     }
 
     #[test]
@@ -1011,5 +1082,139 @@ mod tests {
             msg.contains("newer than this app supports"),
             "unexpected error: {msg}"
         );
+    }
+
+    // ── Schema v9: Hook identity and recovery metadata ──
+
+    /// A database that has been migrated up to v8 and stopped there, which is
+    /// what an installed copy of the previous release holds.
+    fn populated_v8(conn: &Connection) {
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        create_v7_schema(conn);
+        populate_v7_fixture(conn);
+        for version in 7..8 {
+            conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
+            migrate_step(conn, version).unwrap();
+            conn.pragma_update(None, "user_version", version + 1).unwrap();
+            conn.execute_batch("COMMIT").unwrap();
+        }
+    }
+
+    // Requirement: Hook identity and backup metadata exclude Hook payload
+    // Scenario: Schema v8 upgrades atomically to v9
+    #[test]
+    fn test_v9_populated_v8_upgrades_without_data_loss() {
+        let conn = Connection::open_in_memory().unwrap();
+        populated_v8(&conn);
+
+        let untouched = [
+            "skills",
+            "skill_tags",
+            "scenarios",
+            "scenario_skills",
+            "scenario_skill_tools",
+            "active_scenario",
+            "projects",
+            "settings",
+            "discovered_skills",
+            "audit_log",
+            "pending_conflicts",
+            "artifacts",
+            "artifact_deployments",
+        ];
+        let before: Vec<Vec<String>> = untouched.iter().map(|t| dump_table(&conn, t)).collect();
+
+        run_migrations(&conn).unwrap();
+
+        let version: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 9);
+        for (table, expected) in untouched.iter().zip(before.iter()) {
+            assert_eq!(&dump_table(&conn, table), expected, "table {table} changed");
+        }
+        assert!(table_exists(&conn, "hook_details"));
+        assert!(table_exists(&conn, "hook_backups"));
+        assert_eq!(
+            scalar(&conn, "SELECT COUNT(*) FROM hook_details"),
+            "Integer(0)"
+        );
+        assert_eq!(
+            scalar(&conn, "SELECT COUNT(*) FROM hook_backups"),
+            "Integer(0)"
+        );
+    }
+
+    #[test]
+    fn test_v9_fresh_database_has_empty_hook_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let version: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 9);
+        assert_eq!(
+            scalar(&conn, "SELECT COUNT(*) FROM hook_details"),
+            "Integer(0)"
+        );
+        assert_eq!(
+            scalar(&conn, "SELECT COUNT(*) FROM hook_backups"),
+            "Integer(0)"
+        );
+    }
+
+    #[test]
+    fn test_v9_fresh_and_upgraded_schemas_match() {
+        let fresh = Connection::open_in_memory().unwrap();
+        fresh.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        run_migrations(&fresh).unwrap();
+
+        let upgraded = Connection::open_in_memory().unwrap();
+        populated_v8(&upgraded);
+        run_migrations(&upgraded).unwrap();
+
+        assert_eq!(schema_snapshot(&fresh), schema_snapshot(&upgraded));
+    }
+
+    #[test]
+    fn test_v9_migration_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        populated_v8(&conn);
+        run_migrations(&conn).unwrap();
+        let schema = schema_snapshot(&conn);
+
+        run_migrations(&conn).unwrap();
+
+        assert_eq!(schema_snapshot(&conn), schema);
+        let version: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 9);
+    }
+
+    /// A half-applied v9 would leave one Hook table visible without the other,
+    /// so the step has to be all-or-nothing.
+    #[test]
+    fn test_v9_migration_failure_rolls_back_to_v8() {
+        let conn = Connection::open_in_memory().unwrap();
+        populated_v8(&conn);
+        // A table already standing in the way makes the DDL step fail.
+        conn.execute_batch("CREATE TABLE hook_details (blocker TEXT);")
+            .unwrap();
+        let schema_before = schema_snapshot(&conn);
+        let artifacts_before = dump_table(&conn, "artifacts");
+
+        run_migrations(&conn).unwrap_err();
+
+        let version: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 8);
+        assert_eq!(schema_snapshot(&conn), schema_before);
+        assert_eq!(dump_table(&conn, "artifacts"), artifacts_before);
+        assert!(!table_exists(&conn, "hook_backups"));
     }
 }

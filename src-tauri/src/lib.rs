@@ -793,6 +793,13 @@ pub fn run() {
     let pre_builder_ms = pre_builder_start.elapsed().as_millis();
     let store_for_setup = store.clone();
 
+    // Any Hook write interrupted by a crash is reconciled before the UI can ask
+    // for another one. A failure here is not fatal: inspection stays available
+    // and every mutation reports `recovery_required` until it is resolved.
+    if let Err(err) = commands::hooks::reconcile_hook_writes(&store) {
+        log::error!("Hook write recovery is pending: {}", err.message);
+    }
+
     let cancel_registry = Arc::new(core::install_cancel::InstallCancelRegistry::new());
 
     let builder_start = Instant::now();
@@ -1056,6 +1063,11 @@ pub fn run() {
             commands::git_backup::git_backup_sync,
             // Hooks (read-only inspection)
             commands::hooks::get_hook_inspection,
+            commands::hooks::preview_hook_change,
+            commands::hooks::apply_hook_change,
+            commands::hooks::get_hook_recovery,
+            commands::hooks::preview_hook_restore,
+            commands::hooks::apply_hook_restore,
             // Projects
             commands::projects::get_projects,
             commands::projects::add_project,

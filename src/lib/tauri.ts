@@ -898,10 +898,30 @@ export interface CompatibilityRow {
   claudeCode: CompatibilityCell;
 }
 
+export type HookFieldShape = "text" | "integer" | "bool" | "text_list" | "table" | "any";
+
+export interface HookFieldDescriptor {
+  name: string;
+  shape: HookFieldShape;
+}
+
+/** What one Agent's pinned snapshot allows. The editor builds its form from this. */
+export interface HookAgentRegistry {
+  events: string[];
+  handlerTypes: string[];
+  fields: HookFieldDescriptor[];
+}
+
+export interface HookRegistry {
+  codex: HookAgentRegistry;
+  claudeCode: HookAgentRegistry;
+}
+
 export interface HookInspection {
   sources: HookSource[];
   entries: HookEntry[];
   compatibility: CompatibilityRow[];
+  registry: HookRegistry;
   selectedProjectId: string | null;
   snapshotDate: string;
   generatedAt: number;
@@ -909,3 +929,131 @@ export interface HookInspection {
 
 export const getHookInspection = (projectId: string | null) =>
   invoke<HookInspection>("get_hook_inspection", { projectId });
+
+/** Where an existing handler sits in the source as it was last read. */
+export interface HookHandlerLocator {
+  event: string;
+  groupIndex: number;
+  handlerIndex: number;
+}
+
+/**
+ * The handler the user wants after the edit. `fields` carries the complete set
+ * of documented fields — a field the user cleared is simply absent — while
+ * unknown values stay in the file and cannot be expressed here.
+ */
+export interface HookHandlerDraft {
+  event: string;
+  matcher: string | null;
+  handlerType: string;
+  fields: Record<string, unknown>;
+}
+
+export type HookEditOperation =
+  | { kind: "create_handler"; draft: HookHandlerDraft }
+  | { kind: "update_handler"; locator: HookHandlerLocator; draft: HookHandlerDraft }
+  | { kind: "delete_handler"; locator: HookHandlerLocator };
+
+export type HookIssueCode =
+  | "unknown_event"
+  | "unknown_handler_type"
+  | "unknown_field"
+  | "invalid_value_type"
+  | "missing_value"
+  | "preview_too_large";
+
+export interface HookValidationIssue {
+  operationIndex: number;
+  field: string;
+  code: HookIssueCode;
+}
+
+/**
+ * What the user confirms before a write. `baseRevision` binds the confirmation
+ * to the exact bytes it was computed from; only the Hook subtree is included,
+ * so non-Hook configuration never reaches the renderer.
+ */
+export interface HookWritePreview {
+  sourceId: string;
+  baseRevision: string;
+  beforeCanonicalText: string;
+  afterCanonicalText: string;
+  validationIssues: HookValidationIssue[];
+  canApply: boolean;
+  wouldCreateFile: boolean;
+}
+
+export interface HookApplyOutcome {
+  artifactId: string;
+  backupId: string;
+  revision: string;
+  createdFile: boolean;
+}
+
+/** The single recovery point of a managed source. The payload never leaves the backend. */
+export interface HookRecovery {
+  artifactId: string;
+  backupId: string;
+  kind: "bytes" | "absent";
+  createdAt: number;
+  restoredAt: number | null;
+  canRestore: boolean;
+  baseRevision: string;
+}
+
+/** Every failure a Hook mutation can report, as the backend spells it. */
+export type HookWriteErrorKey =
+  | "invalid_project"
+  | "invalid_source"
+  | "source_offline"
+  | "unsupported_source_type"
+  | "invalid_hook_draft"
+  | "stale_draft"
+  | "source_conflict"
+  | "preview_too_large"
+  | "backup_failed"
+  | "atomic_replace_unsupported"
+  | "write_failed"
+  | "restore_failed"
+  | "recovery_required";
+
+export const previewHookChange = (
+  projectId: string | null,
+  sourceId: string,
+  operations: HookEditOperation[],
+) => invoke<HookWritePreview>("preview_hook_change", { projectId, sourceId, operations });
+
+export const applyHookChange = (
+  projectId: string | null,
+  sourceId: string,
+  baseRevision: string,
+  operations: HookEditOperation[],
+) =>
+  invoke<HookApplyOutcome>("apply_hook_change", {
+    projectId,
+    sourceId,
+    baseRevision,
+    operations,
+  });
+
+export const getHookRecovery = (projectId: string | null, sourceId: string) =>
+  invoke<HookRecovery | null>("get_hook_recovery", { projectId, sourceId });
+
+export const previewHookRestore = (
+  projectId: string | null,
+  sourceId: string,
+  backupId: string,
+) => invoke<HookWritePreview>("preview_hook_restore", { projectId, sourceId, backupId });
+
+export const applyHookRestore = (
+  projectId: string | null,
+  sourceId: string,
+  backupId: string,
+  baseRevision: string,
+) =>
+  invoke<HookApplyOutcome>("apply_hook_restore", {
+    projectId,
+    sourceId,
+    backupId,
+    baseRevision,
+  });

@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 use super::artifact::{
     ArtifactDeploymentRecord, ArtifactKind, ArtifactRecord, ArtifactScope, DeploymentMode,
+    HookBackupKind, HookContext,
 };
 use super::audit_log::{AuditDraft, AuditEntry, MAX_ENTRIES as AUDIT_MAX_ENTRIES};
 use super::crypto;
@@ -17,6 +18,42 @@ const SENSITIVE_KEYS: &[&str] = &["proxy_url", "git_backup_remote_url"];
 pub struct SkillStore {
     conn: Mutex<Connection>,
     secret_key: [u8; 32],
+}
+
+/// Identity metadata for one managed Hook source.
+///
+/// There is deliberately no path column: the path is re-derived from the fixed
+/// descriptor and the Project record on every use, so a moved Project cannot
+/// leave a stale writable path behind. There is also no Hook content — command,
+/// prompt, URL, headers and environment never reach SQLite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookDetailRecord {
+    pub artifact_id: String,
+    pub source_id: String,
+    pub context: HookContext,
+    pub agent: String,
+    pub scope: String,
+    pub format: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// The single active recovery point of a managed Hook source.
+///
+/// `locator` is relative to the private backup root, and the hashes identify
+/// states without reproducing them: nothing here can reconstruct Hook content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookBackupRecord {
+    pub id: String,
+    pub artifact_id: String,
+    pub kind: HookBackupKind,
+    /// Revision of the source this recovery point holds.
+    pub before_hash: String,
+    /// Revision the apply produced, used to tell whether restore is still safe.
+    pub after_hash: String,
+    pub locator: String,
+    pub created_at: i64,
+    pub restored_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,6 +300,121 @@ impl SkillStore {
                     kind: ArtifactKind::parse(&kind)?,
                 }))
             }
+        }
+    }
+
+    // ── Hook identity and recovery metadata ──
+
+    pub fn get_hook_detail(
+        &self,
+        source_id: &str,
+        context_key: &str,
+    ) -> Result<Option<HookDetailRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT artifact_id, source_id, context_key, agent, scope, format, created_at, updated_at
+             FROM hook_details WHERE source_id = ?1 AND context_key = ?2",
+        )?;
+        let mut rows = stmt.query(params![source_id, context_key])?;
+        match rows.next()? {
+            None => Ok(None),
+            Some(row) => Ok(Some(HookDetailRecord {
+                artifact_id: row.get(0)?,
+                source_id: row.get(1)?,
+                context: HookContext::parse(&row.get::<_, String>(2)?)?,
+                agent: row.get(3)?,
+                scope: row.get(4)?,
+                format: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })),
+        }
+    }
+
+    /// Commits everything one successful Hook write produces, in one
+    /// transaction.
+    ///
+    /// Identity, detail and recovery metadata have to land together: a detail
+    /// row without its recovery point would describe a managed source that
+    /// cannot be undone.
+    pub fn commit_hook_write(
+        &self,
+        new_artifact: Option<&ArtifactRecord>,
+        detail: &HookDetailRecord,
+        backup: &HookBackupRecord,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        if let Some(artifact) = new_artifact {
+            tx.execute(
+                "INSERT INTO artifacts (id, kind) VALUES (?1, ?2)",
+                params![artifact.id, artifact.kind.as_str()],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO hook_details
+                (artifact_id, source_id, context_key, agent, scope, format, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(artifact_id) DO UPDATE SET
+                source_id = excluded.source_id,
+                context_key = excluded.context_key,
+                agent = excluded.agent,
+                scope = excluded.scope,
+                format = excluded.format,
+                updated_at = excluded.updated_at",
+            params![
+                detail.artifact_id,
+                detail.source_id,
+                detail.context.key(),
+                detail.agent,
+                detail.scope,
+                detail.format,
+                detail.created_at,
+                detail.updated_at,
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM hook_backups WHERE artifact_id = ?1",
+            params![backup.artifact_id],
+        )?;
+        tx.execute(
+            "INSERT INTO hook_backups
+                (id, artifact_id, kind, before_hash, after_hash, locator, created_at, restored_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                backup.id,
+                backup.artifact_id,
+                backup.kind.as_str(),
+                backup.before_hash,
+                backup.after_hash,
+                backup.locator,
+                backup.created_at,
+                backup.restored_at,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_hook_backup(&self, artifact_id: &str) -> Result<Option<HookBackupRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, artifact_id, kind, before_hash, after_hash, locator, created_at, restored_at
+             FROM hook_backups WHERE artifact_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![artifact_id])?;
+        match rows.next()? {
+            None => Ok(None),
+            Some(row) => Ok(Some(HookBackupRecord {
+                id: row.get(0)?,
+                artifact_id: row.get(1)?,
+                kind: HookBackupKind::parse(&row.get::<_, String>(2)?)?,
+                before_hash: row.get(3)?,
+                after_hash: row.get(4)?,
+                locator: row.get(5)?,
+                created_at: row.get(6)?,
+                restored_at: row.get(7)?,
+            })),
         }
     }
 
@@ -2370,5 +2522,254 @@ mod tag_tests {
         let map = store.get_tags_map().unwrap();
         assert_eq!(map.get("a").unwrap(), &vec!["keep".to_string()]);
         assert!(map.get("b").is_none());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn store_with_hook_artifact(dir: &std::path::Path, artifact_id: &str) -> SkillStore {
+        let store = SkillStore::new(&dir.join("hooks.db")).expect("store");
+        store
+            .insert_artifact(&ArtifactRecord {
+                id: artifact_id.to_string(),
+                kind: ArtifactKind::Hook,
+            })
+            .expect("insert hook artifact");
+        store
+    }
+
+    fn detail(artifact_id: &str, source_id: &str, context: HookContext) -> HookDetailRecord {
+        HookDetailRecord {
+            artifact_id: artifact_id.to_string(),
+            source_id: source_id.to_string(),
+            context,
+            agent: "codex".to_string(),
+            scope: "user".to_string(),
+            format: "json".to_string(),
+            created_at: 1_000,
+            updated_at: 1_000,
+        }
+    }
+
+    fn backup(id: &str, artifact_id: &str, before: &str, after: &str) -> HookBackupRecord {
+        HookBackupRecord {
+            id: id.to_string(),
+            artifact_id: artifact_id.to_string(),
+            kind: HookBackupKind::Bytes,
+            before_hash: before.to_string(),
+            after_hash: after.to_string(),
+            locator: format!("{artifact_id}/latest"),
+            created_at: 2_000,
+            restored_at: None,
+        }
+    }
+
+    fn columns_of(store: &SkillStore, table: &str) -> Vec<String> {
+        let conn = store.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .expect("table_info");
+        let mut names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query")
+            .map(|row| row.expect("column"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    // Requirement: Hook identity and backup metadata exclude Hook payload
+    // Scenario: First successful apply creates one identity
+    #[test]
+    fn hook_detail_is_created_once_and_reused() {
+        let dir = tempdir().expect("dir");
+        let store = store_with_hook_artifact(dir.path(), "artifact-1");
+        let record = detail("artifact-1", "codex:user:hooks-json", HookContext::Global);
+
+        store
+            .commit_hook_write(None, &record, &backup("backup-1", "artifact-1", "a", "b"))
+            .expect("first apply");
+        let mut later = record.clone();
+        later.updated_at = 3_000;
+        store
+            .commit_hook_write(None, &later, &backup("backup-2", "artifact-1", "b", "c"))
+            .expect("second apply");
+
+        let stored = store
+            .get_hook_detail("codex:user:hooks-json", "global")
+            .expect("query")
+            .expect("detail row");
+        assert_eq!(stored.artifact_id, "artifact-1");
+        assert_eq!(stored.created_at, 1_000, "identity keeps its creation time");
+        assert_eq!(stored.updated_at, 3_000);
+
+        let conn = store.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM hook_details", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(count, 1, "an Artifact identity is created once");
+    }
+
+    #[test]
+    fn hook_detail_separates_global_and_project_context() {
+        let dir = tempdir().expect("dir");
+        let store = store_with_hook_artifact(dir.path(), "artifact-global");
+        store
+            .insert_artifact(&ArtifactRecord {
+                id: "artifact-project".to_string(),
+                kind: ArtifactKind::Hook,
+            })
+            .expect("second artifact");
+
+        store
+            .commit_hook_write(
+                None,
+                &detail(
+                    "artifact-global",
+                    "claude_code:project:settings-json",
+                    HookContext::Global,
+                ),
+                &backup("backup-global", "artifact-global", "a", "b"),
+            )
+            .expect("global context");
+        store
+            .commit_hook_write(
+                None,
+                &detail(
+                    "artifact-project",
+                    "claude_code:project:settings-json",
+                    HookContext::Project("project-1".to_string()),
+                ),
+                &backup("backup-project", "artifact-project", "a", "b"),
+            )
+            .expect("project context");
+
+        let global = store
+            .get_hook_detail("claude_code:project:settings-json", "global")
+            .expect("query")
+            .expect("global row");
+        let project = store
+            .get_hook_detail("claude_code:project:settings-json", "project:project-1")
+            .expect("query")
+            .expect("project row");
+
+        assert_eq!(global.artifact_id, "artifact-global");
+        assert_eq!(project.artifact_id, "artifact-project");
+        assert_eq!(
+            project.context,
+            HookContext::Project("project-1".to_string())
+        );
+    }
+
+    #[test]
+    fn hook_backup_keeps_only_the_latest_recovery_point() {
+        let dir = tempdir().expect("dir");
+        let store = store_with_hook_artifact(dir.path(), "artifact-1");
+
+        let record = detail("artifact-1", "codex:user:hooks-json", HookContext::Global);
+        store
+            .commit_hook_write(None, &record, &backup("backup-1", "artifact-1", "rev-a", "rev-b"))
+            .expect("first recovery point");
+        store
+            .commit_hook_write(None, &record, &backup("backup-2", "artifact-1", "rev-b", "rev-c"))
+            .expect("second recovery point");
+
+        let latest = store
+            .get_hook_backup("artifact-1")
+            .expect("query")
+            .expect("latest row");
+        assert_eq!(latest.id, "backup-2");
+        assert_eq!(latest.before_hash, "rev-b");
+
+        let conn = store.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM hook_backups", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(count, 1, "only one recovery point may be retained");
+    }
+
+    /// A recovery point produced by a restore carries the time the restore ran,
+    /// which is what separates it from one an apply left behind.
+    #[test]
+    fn hook_backup_records_when_it_was_restored() {
+        let dir = tempdir().expect("dir");
+        let store = store_with_hook_artifact(dir.path(), "artifact-1");
+        let mut record = backup("backup-1", "artifact-1", "rev-a", "rev-b");
+        record.restored_at = Some(5_000);
+        store
+            .commit_hook_write(
+                None,
+                &detail("artifact-1", "codex:user:hooks-json", HookContext::Global),
+                &record,
+            )
+            .expect("recovery point");
+
+        let stored = store
+            .get_hook_backup("artifact-1")
+            .expect("query")
+            .expect("row");
+        assert_eq!(stored.restored_at, Some(5_000));
+    }
+
+    #[test]
+    fn hook_backup_of_an_absent_source_stores_a_marker() {
+        let dir = tempdir().expect("dir");
+        let store = store_with_hook_artifact(dir.path(), "artifact-1");
+        let mut record = backup("backup-1", "artifact-1", "missing", "rev-b");
+        record.kind = HookBackupKind::Absent;
+        record.locator = String::new();
+
+        store
+            .commit_hook_write(
+                None,
+                &detail("artifact-1", "codex:user:hooks-json", HookContext::Global),
+                &record,
+            )
+            .expect("absence marker");
+
+        let stored = store
+            .get_hook_backup("artifact-1")
+            .expect("query")
+            .expect("row");
+        assert_eq!(stored.kind, HookBackupKind::Absent);
+        assert_eq!(stored.before_hash, "missing");
+    }
+
+    /// The columns are the contract: a payload column added later would let Hook
+    /// content into SQLite without any single test noticing.
+    #[test]
+    fn hook_tables_have_no_payload_column() {
+        let dir = tempdir().expect("dir");
+        let store = store_with_hook_artifact(dir.path(), "artifact-1");
+
+        assert_eq!(
+            columns_of(&store, "hook_details"),
+            vec![
+                "agent".to_string(),
+                "artifact_id".to_string(),
+                "context_key".to_string(),
+                "created_at".to_string(),
+                "format".to_string(),
+                "scope".to_string(),
+                "source_id".to_string(),
+                "updated_at".to_string(),
+            ]
+        );
+        assert_eq!(
+            columns_of(&store, "hook_backups"),
+            vec![
+                "after_hash".to_string(),
+                "artifact_id".to_string(),
+                "before_hash".to_string(),
+                "created_at".to_string(),
+                "id".to_string(),
+                "kind".to_string(),
+                "locator".to_string(),
+                "restored_at".to_string(),
+            ]
+        );
     }
 }

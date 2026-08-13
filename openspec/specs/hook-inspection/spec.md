@@ -270,9 +270,9 @@ code:
 -->
 
 ---
-### Requirement: Hooks page exposes filters, diagnostics, details, and compatibility without mutation controls
+### Requirement: Hooks page exposes gated Hook editing without execution controls
 
-AgentDeck SHALL provide a `/hooks` route and Sidebar entry. The page SHALL expose Agent, scope, event, source status, and Project selection controls; source diagnostics; a Hook Inspector; bounded source comparison; and the compatibility matrix. It MUST NOT render create, edit, delete, enable, disable, apply, execute, backup, or restore controls in this change.
+AgentDeck SHALL provide a `/hooks` route and Sidebar entry. The page SHALL retain Agent, scope, event, source status, and Project filters; source diagnostics; Hook Inspector; bounded source comparison; and compatibility matrix. For writable fixed sources it SHALL additionally expose Edit, Delete, Preview, Apply, and Restore controls governed by backend validation and exact source revisions. It MUST NOT render or invoke any Hook execution, test-run, enable, or disable action.
 
 #### Scenario: User filters and inspects a Hook
 
@@ -283,39 +283,67 @@ AgentDeck SHALL provide a `/hooks` route and Sidebar entry. The page SHALL expos
 
 #### Scenario: Missing and invalid sources remain understandable
 
-- **GIVEN** one source is missing and one source is invalid
+- **GIVEN** one writable fixed source is missing and one source is invalid
 - **WHEN** the Hooks page loads
-- **THEN** the missing source is shown as a normal empty state
-- **AND** the invalid source shows its sanitized source-specific diagnostic
+- **THEN** the missing source is shown as an empty state with an option to create its first handler
+- **AND** the invalid source shows its sanitized source-specific diagnostic without mutation controls
 - **AND** available entries and the compatibility matrix remain interactive
 
-#### Scenario: Read-only scope is visible in the interface
+#### Scenario: Edit controls are limited by source capability
 
+- **GIVEN** inspection includes a valid regular source, a symlink source, an offline source, and a too-large source
 - **WHEN** the Hooks page renders
-- **THEN** it labels the current capability as read-only
-- **AND** no mutation or execution control is present
+- **THEN** Edit and Delete are available only for handlers in the valid regular source
+- **AND** the other sources show a localized reason that mutation is unavailable
 - **AND** English and Traditional Chinese locale files contain matching keys for every new user-visible string
 
+#### Scenario: Apply requires a current successful preview
+
+- **GIVEN** a user changed a Hook draft
+- **WHEN** backend validation has not produced a current preview with `canApply=true`
+- **THEN** Apply is disabled
+- **AND** clicking Preview never writes a source, backup, Artifact, or localStorage entry
+
+#### Scenario: Draft changes invalidate an earlier preview
+
+- **GIVEN** preview succeeded for draft revision `draft-1`
+- **WHEN** the user changes any event, matcher, handler type, or editable field
+- **THEN** the earlier diff and base revision are marked stale
+- **AND** Apply remains disabled until preview succeeds for the new draft
+
+#### Scenario: Project switch clears sensitive route-local state
+
+- **GIVEN** the editor holds a draft and preview for Project `project-1`
+- **WHEN** the user selects Project `project-2` while a request is pending
+- **THEN** the draft, preview, selected handler, and recovery selection for `project-1` are cleared
+- **AND** a late response for `project-1` does not replace `project-2` state
+- **AND** no Hook content is stored in `AppContext` or localStorage
+
+#### Scenario: Restore is previewed and never executes a Hook
+
+- **GIVEN** a latest recovery point exists for the selected source
+- **WHEN** the user requests Restore
+- **THEN** the page displays the backend restore diff before enabling Restore Apply
+- **AND** restore requires the current base revision
+- **AND** no Hook command, prompt, HTTP endpoint, MCP tool, or agent handler is invoked
+
 <!-- @trace
-source: inspect-codex-claude-hooks
+source: edit-codex-claude-hooks
 updated: 2026-08-13
 code:
-  - src/lib/tauri.ts
   - src/i18n/en.json
-  - src-tauri/src/core/mod.rs
-  - src/i18n/zh-TW.json
-  - src/components/HookInspector.tsx
-  - src/views/Hooks.tsx
-  - scripts/check-hooks-ui.mjs
-  - src-tauri/src/commands/mod.rs
-  - package.json
-  - .agents/skills/spectra-verify/SKILL.md
-  - .agents/skills/spectra-analyze/SKILL.md
-  - src-tauri/Cargo.toml
-  - src-tauri/src/lib.rs
-  - plan.md
-  - src/App.tsx
+  - src/lib/tauri.ts
   - src-tauri/src/core/hook_inspection.rs
-  - src/components/Sidebar.tsx
+  - src-tauri/src/core/skill_store.rs
+  - src-tauri/src/core/mod.rs
+  - src-tauri/src/lib.rs
+  - scripts/check-hooks-ui.mjs
+  - plan.md
   - src-tauri/src/commands/hooks.rs
+  - src-tauri/src/core/hook_management.rs
+  - src-tauri/src/core/migrations.rs
+  - src/components/HookEditor.tsx
+  - src/i18n/zh-TW.json
+  - src-tauri/src/core/artifact.rs
+  - src/views/Hooks.tsx
 -->

@@ -103,6 +103,65 @@ impl ArtifactScope {
     }
 }
 
+/// Which configuration context a managed Hook source belongs to.
+///
+/// A source id is only unique inside its context: `claude_code:project:settings-json`
+/// names a different file in every linked Project, so identity is keyed on both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HookContext {
+    Global,
+    Project(String),
+}
+
+impl HookContext {
+    /// The persisted key. A prefix rather than two columns keeps the source id
+    /// plus context uniqueness expressible as one index.
+    pub fn key(&self) -> String {
+        match self {
+            HookContext::Global => "global".to_string(),
+            HookContext::Project(id) => format!("project:{id}"),
+        }
+    }
+
+    pub fn parse(key: &str) -> Result<Self> {
+        if key == "global" {
+            return Ok(HookContext::Global);
+        }
+        match key.strip_prefix("project:") {
+            Some(id) if !id.is_empty() => Ok(HookContext::Project(id.to_string())),
+            _ => bail!("unknown hook context key: {key:?} (expected global or project:<id>)"),
+        }
+    }
+}
+
+/// Whether a recovery point holds the previous bytes, or records that the
+/// source did not exist before the write.
+///
+/// An absent source has no payload file: writing an empty one would restore a
+/// zero-byte config instead of removing the file AgentDeck created.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookBackupKind {
+    Bytes,
+    Absent,
+}
+
+impl HookBackupKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HookBackupKind::Bytes => "bytes",
+            HookBackupKind::Absent => "absent",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "bytes" => Ok(HookBackupKind::Bytes),
+            "absent" => Ok(HookBackupKind::Absent),
+            other => bail!("unknown hook backup kind: {other:?} (expected bytes or absent)"),
+        }
+    }
+}
+
 /// How a deployment puts the Artifact in place.
 ///
 /// `CliManaged` covers Agents whose own CLI owns the on-disk layout, so

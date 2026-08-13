@@ -312,12 +312,88 @@ pub struct CompatibilityRowDto {
     pub claude_code: CompatibilityCellDto,
 }
 
+/// The value shape a documented field name implies.
+///
+// SIMPLE: the pinned snapshot records field names, not value types, so only
+// shapes that the field name makes unambiguous are pinned; upgrade to a typed
+// registry when the compatibility snapshot carries types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookFieldShape {
+    Text,
+    Integer,
+    Bool,
+    TextList,
+    Table,
+    /// Documented, but the snapshot does not pin one shape.
+    Any,
+}
+
+pub fn field_shape(name: &str) -> HookFieldShape {
+    match name {
+        "command" | "commandWindows" | "statusMessage" | "url" | "prompt" | "model" | "server"
+        | "tool" | "if" => HookFieldShape::Text,
+        "timeout" | "additionalContextLimit" => HookFieldShape::Integer,
+        "async" | "asyncRewake" | "once" => HookFieldShape::Bool,
+        "args" | "allowedEnvVars" => HookFieldShape::TextList,
+        "headers" | "input" => HookFieldShape::Table,
+        _ => HookFieldShape::Any,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HookFieldDescriptorDto {
+    pub name: &'static str,
+    pub shape: HookFieldShape,
+}
+
+/// What one Agent's pinned snapshot allows, so the editor can build its form
+/// from the same registry the backend validates against.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookAgentRegistryDto {
+    pub events: &'static [&'static str],
+    pub handler_types: &'static [&'static str],
+    pub fields: Vec<HookFieldDescriptorDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookRegistryDto {
+    pub codex: HookAgentRegistryDto,
+    pub claude_code: HookAgentRegistryDto,
+}
+
+fn agent_registry(agent: HookAgent) -> HookAgentRegistryDto {
+    HookAgentRegistryDto {
+        events: known_events(agent),
+        handler_types: known_handlers(agent),
+        fields: known_fields(agent)
+            .iter()
+            .map(|name| HookFieldDescriptorDto {
+                name,
+                shape: field_shape(name),
+            })
+            .collect(),
+    }
+}
+
+pub fn registry() -> HookRegistryDto {
+    HookRegistryDto {
+        codex: agent_registry(HookAgent::Codex),
+        claude_code: agent_registry(HookAgent::ClaudeCode),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HookInspectionDto {
     pub sources: Vec<HookSourceDto>,
     pub entries: Vec<HookEntryDto>,
     pub compatibility: Vec<CompatibilityRowDto>,
+    /// What the editor may offer, taken from the same pinned snapshot the write
+    /// path validates against.
+    pub registry: HookRegistryDto,
     pub selected_project_id: Option<String>,
     pub snapshot_date: &'static str,
     pub generated_at: i64,
@@ -485,21 +561,24 @@ pub fn compatibility_registry() -> Vec<CompatibilityRowDto> {
     rows
 }
 
-fn known_events(agent: HookAgent) -> &'static [&'static str] {
+/// The events this Agent's pinned snapshot documents.
+pub fn known_events(agent: HookAgent) -> &'static [&'static str] {
     match agent {
         HookAgent::Codex => CODEX_EVENTS,
         HookAgent::ClaudeCode => CLAUDE_EVENTS,
     }
 }
 
-fn known_handlers(agent: HookAgent) -> &'static [&'static str] {
+/// The handler types this Agent's pinned snapshot documents as executed.
+pub fn known_handlers(agent: HookAgent) -> &'static [&'static str] {
     match agent {
         HookAgent::Codex => CODEX_HANDLERS,
         HookAgent::ClaudeCode => CLAUDE_HANDLERS,
     }
 }
 
-fn known_fields(agent: HookAgent) -> &'static [&'static str] {
+/// The handler fields this Agent's pinned snapshot documents.
+pub fn known_fields(agent: HookAgent) -> &'static [&'static str] {
     match agent {
         HookAgent::Codex => CODEX_FIELDS,
         HookAgent::ClaudeCode => CLAUDE_FIELDS,
@@ -547,9 +626,28 @@ struct ParseFailure {
 
 /// The Hook subtree, normalized to JSON for entry extraction, plus the
 /// format-native canonical text used for comparison.
-struct HookSubtree {
-    value: Option<JsonValue>,
-    canonical_text: String,
+pub struct HookSubtree {
+    pub value: Option<JsonValue>,
+    pub canonical_text: String,
+}
+
+/// Parses one source document and returns its Hook subtree.
+///
+/// The write path shares this so reading and writing cannot disagree about what
+/// counts as a valid Hook shape. The error is a sanitized parser message, never
+/// the document's own text.
+pub fn parse_hook_subtree(format: HookFormat, text: &str) -> Result<HookSubtree, String> {
+    match format {
+        HookFormat::Json => parse_json_subtree(text),
+        HookFormat::Toml => parse_toml_subtree(text),
+    }
+    .map_err(|failure| failure.message)
+}
+
+/// Renders a Hook subtree the same way inspection does, so a preview diff and
+/// the Inspector show the same text.
+pub fn canonical_json_text(hooks: &JsonValue) -> String {
+    serde_json::to_string_pretty(hooks).unwrap_or_default()
 }
 
 fn parse_json_subtree(text: &str) -> Result<HookSubtree, ParseFailure> {
@@ -676,7 +774,9 @@ fn clear_value_decor(value: &mut TomlValue) {
     }
 }
 
-fn toml_item_to_json(item: &TomlItem) -> JsonValue {
+/// Projects a TOML node onto JSON so both formats share one comparison and
+/// entry-extraction path.
+pub fn toml_item_to_json(item: &TomlItem) -> JsonValue {
     match item {
         TomlItem::None => JsonValue::Null,
         TomlItem::Value(value) => toml_value_to_json(value),
@@ -965,6 +1065,7 @@ pub fn inspect(
         sources,
         entries,
         compatibility: compatibility_registry(),
+        registry: registry(),
         selected_project_id,
         snapshot_date: COMPATIBILITY_SNAPSHOT_DATE,
         generated_at: chrono::Utc::now().timestamp(),

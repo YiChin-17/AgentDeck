@@ -1115,8 +1115,7 @@
   },
   "hooks": {
     "title": "Hooks",
-    "subtitle": "Read-only view of the Hook configuration Codex and Claude Code load.",
-    "readOnlyBadge": "Read-only",
+    "subtitle": "Inspect the Hook configuration Codex and Claude Code load, and edit it through a preview.",
     "projectLabel": "Project",
     "projectNone": "User scope only",
     "invalidProject": "That Project is no longer linked. Pick another Project.",
@@ -1197,6 +1196,66 @@
       "positionValue": "matcher group {{group}}, handler {{handler}}",
       "fields": "Handler fields",
       "noFields": "This handler declares no fields."
+    },
+    "gatedEditBadge": "Editing is preview-gated",
+    "edit": {
+      "editTitle": "Edit Hook handler",
+      "createTitle": "Create the first Hook handler",
+      "edit": "Edit",
+      "createFirst": "Create the first handler",
+      "event": "Event",
+      "matcher": "Matcher",
+      "handlerType": "Handler type",
+      "unset": "Not set",
+      "unknownFields": "Values this Agent's snapshot does not document. They stay exactly as they are and cannot be edited here.",
+      "preview": "Preview",
+      "apply": "Apply",
+      "delete": "Delete",
+      "applied": "Applied.",
+      "diffHeading": "Hook changes this write would make",
+      "wouldCreateFile": "This write creates the config file.",
+      "failed": "The Hook change could not be completed.",
+      "restoreHeading": "Recovery",
+      "noRecovery": "AgentDeck has not written this source yet, so there is nothing to restore.",
+      "recoveryReady": "The source still matches the last write, so it can be restored.",
+      "recoveryStale": "The source changed after the last write. Preview the restore before applying it.",
+      "restorePreview": "Preview restore",
+      "restoreApply": "Restore",
+      "shape": {
+        "text": "text",
+        "integer": "whole number",
+        "bool": "true or false",
+        "text_list": "JSON list of text",
+        "table": "JSON object",
+        "any": "value"
+      },
+      "issue": {
+        "unknown_event": "This Agent's snapshot does not document that event.",
+        "unknown_handler_type": "This Agent's snapshot does not document that handler type.",
+        "unknown_field": "This field cannot be set through AgentDeck.",
+        "invalid_value_type": "That value does not match the shape this field takes.",
+        "missing_value": "This handler type needs this value.",
+        "preview_too_large": "The Hook configuration is too large to diff here."
+      },
+      "refusal": {
+        "invalid": "This source cannot be edited until its syntax is fixed outside AgentDeck.",
+        "too_large": "This source is above the read limit, so it cannot be edited here."
+      },
+      "error": {
+        "invalid_project": "That Project is no longer linked.",
+        "invalid_source": "That Hook source is not one AgentDeck manages.",
+        "source_offline": "The Project root is not available, so nothing was written.",
+        "unsupported_source_type": "This location is not a plain config file AgentDeck can write.",
+        "invalid_hook_draft": "Some values are not accepted by this Agent. Fix the marked fields.",
+        "stale_draft": "That handler is no longer where it was. Reload and try again.",
+        "source_conflict": "The file changed after the preview. Reload and preview again.",
+        "preview_too_large": "The Hook configuration is too large to preview.",
+        "backup_failed": "The recovery point could not be created, so nothing was written.",
+        "atomic_replace_unsupported": "This platform cannot replace the file safely, so nothing was written.",
+        "write_failed": "The write did not complete. The file was left as it was.",
+        "restore_failed": "The recovery point could not be used. The file was left as it was.",
+        "recovery_required": "An interrupted Hook write must be recovered before further changes."
+      }
     }
   }
 }

@@ -1,15 +1,21 @@
-//! Read-only Hook inspection command.
+//! Hook inspection and gated Hook editing commands.
 //!
-//! Everything here reads: no file is written, no Hook is executed, and nothing
-//! from a Hook source is logged or stored.
+//! No Hook is ever executed here, and nothing from a Hook source is logged or
+//! stored: every command takes a Project id and an enum-backed source id, never
+//! a filesystem path, and all writing happens in `core::hook_management`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::State;
 
+use crate::core::central_repo;
 use crate::core::error::{AppError, ErrorKind};
 use crate::core::hook_inspection::{self, HookInspectionDto};
+use crate::core::hook_management::{
+    self, HookApplyOutcome, HookEditOperationDto, HookRecoveryDto, HookWriteEnv, HookWriteError,
+    HookWritePreviewDto,
+};
 use crate::core::skill_store::SkillStore;
 
 /// Resolves the optional Project id and inspects the fixed sources.
@@ -53,6 +59,176 @@ pub async fn get_hook_inspection(
         })
     })
     .await?
+}
+
+/// Where owner-private recovery payloads live: application state, never the
+/// Library Git tree that gets synced and backed up.
+fn backup_root() -> PathBuf {
+    central_repo::base_dir().join("hook-backups")
+}
+
+/// Every Hook write failure reaches the frontend as one stable code.
+///
+/// The code is the whole message: a parser or filesystem string could carry a
+/// path or a fragment of the user's configuration.
+fn write_error(error: HookWriteError) -> AppError {
+    AppError {
+        kind: match error {
+            HookWriteError::InvalidProject
+            | HookWriteError::InvalidSource
+            | HookWriteError::InvalidHookDraft
+            | HookWriteError::StaleDraft
+            | HookWriteError::UnsupportedSourceType
+            | HookWriteError::PreviewTooLarge => ErrorKind::InvalidInput,
+            HookWriteError::SourceOffline => ErrorKind::NotFound,
+            HookWriteError::SourceConflict | HookWriteError::RecoveryRequired => {
+                ErrorKind::Cancelled
+            }
+            HookWriteError::BackupFailed
+            | HookWriteError::AtomicReplaceUnsupported
+            | HookWriteError::WriteFailed
+            | HookWriteError::RestoreFailed => ErrorKind::Io,
+        },
+        message: error.as_str().to_string(),
+    }
+}
+
+/// Runs `action` with an environment built from application state.
+fn with_env<T>(
+    store: Arc<SkillStore>,
+    action: impl FnOnce(&HookWriteEnv<'_>) -> Result<T, HookWriteError>,
+) -> Result<T, AppError> {
+    let home = dirs::home_dir();
+    let root = backup_root();
+    let env = HookWriteEnv {
+        home: home.as_deref(),
+        backup_root: &root,
+        store: &store,
+        fault: None,
+    };
+    action(&env).map_err(write_error)
+}
+
+/// Returns the diff, base revision and validation result of a draft.
+///
+/// Nothing is written: the preview path is given no backup root and no database
+/// handle, so it cannot persist even by mistake.
+#[tauri::command]
+pub async fn preview_hook_change(
+    store: State<'_, Arc<SkillStore>>,
+    project_id: Option<String>,
+    source_id: String,
+    operations: Vec<HookEditOperationDto>,
+) -> Result<HookWritePreviewDto, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        hook_management::ensure_mutations_allowed(&backup_root()).map_err(write_error)?;
+        hook_management::preview_change(
+            dirs::home_dir().as_deref(),
+            project_id.as_deref(),
+            &source_id,
+            &operations,
+            |id| {
+                store
+                    .get_project_by_id(id)
+                    .ok()
+                    .flatten()
+                    .map(|record| record.path)
+            },
+        )
+        .map_err(write_error)
+    })
+    .await?
+}
+
+/// Applies a previewed draft against the exact revision it was built from.
+#[tauri::command]
+pub async fn apply_hook_change(
+    store: State<'_, Arc<SkillStore>>,
+    project_id: Option<String>,
+    source_id: String,
+    base_revision: String,
+    operations: Vec<HookEditOperationDto>,
+) -> Result<HookApplyOutcome, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_env(store, |env| {
+            hook_management::apply_change(
+                env,
+                project_id.as_deref(),
+                &source_id,
+                &base_revision,
+                &operations,
+            )
+        })
+    })
+    .await?
+}
+
+/// Returns the latest recovery point of a managed source, without its payload.
+#[tauri::command]
+pub async fn get_hook_recovery(
+    store: State<'_, Arc<SkillStore>>,
+    project_id: Option<String>,
+    source_id: String,
+) -> Result<Option<HookRecoveryDto>, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_env(store, |env| {
+            hook_management::get_recovery(env, project_id.as_deref(), &source_id)
+        })
+    })
+    .await?
+}
+
+/// Diffs the current source against the recovery point it would be restored to.
+#[tauri::command]
+pub async fn preview_hook_restore(
+    store: State<'_, Arc<SkillStore>>,
+    project_id: Option<String>,
+    source_id: String,
+    backup_id: String,
+) -> Result<HookWritePreviewDto, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_env(store, |env| {
+            hook_management::ensure_mutations_allowed(env.backup_root)?;
+            hook_management::preview_restore(env, project_id.as_deref(), &source_id, &backup_id)
+        })
+    })
+    .await?
+}
+
+/// Restores the recovery point and leaves the pre-restore state as the new one.
+#[tauri::command]
+pub async fn apply_hook_restore(
+    store: State<'_, Arc<SkillStore>>,
+    project_id: Option<String>,
+    source_id: String,
+    backup_id: String,
+    base_revision: String,
+) -> Result<HookApplyOutcome, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_env(store, |env| {
+            hook_management::apply_restore(
+                env,
+                project_id.as_deref(),
+                &source_id,
+                &backup_id,
+                &base_revision,
+            )
+        })
+    })
+    .await?
+}
+
+/// Brings any interrupted Hook write back to a consistent state.
+///
+/// Called once at startup, before the UI can request a mutation; a failure
+/// leaves inspection working while every mutation reports `recovery_required`.
+pub fn reconcile_hook_writes(store: &Arc<SkillStore>) -> Result<(), AppError> {
+    with_env(store.clone(), hook_management::reconcile_pending_operations)
 }
 
 #[cfg(test)]
@@ -297,6 +473,84 @@ mod tests {
         assert_eq!(bytes_before, bytes_after, "source files must be untouched");
         assert_eq!(tree_before, tree_after, "no file may be added or removed");
         assert_eq!(rows_before, rows_after, "no row may be written");
+    }
+
+    /// The frontend branches on these strings and localizes them, so every one
+    /// of them is part of the contract.
+    #[test]
+    fn hook_write_errors_serialize_to_stable_keys() {
+        let expected = [
+            (HookWriteError::InvalidProject, "invalid_project"),
+            (HookWriteError::InvalidSource, "invalid_source"),
+            (HookWriteError::SourceOffline, "source_offline"),
+            (
+                HookWriteError::UnsupportedSourceType,
+                "unsupported_source_type",
+            ),
+            (HookWriteError::InvalidHookDraft, "invalid_hook_draft"),
+            (HookWriteError::StaleDraft, "stale_draft"),
+            (HookWriteError::SourceConflict, "source_conflict"),
+            (HookWriteError::PreviewTooLarge, "preview_too_large"),
+            (HookWriteError::BackupFailed, "backup_failed"),
+            (
+                HookWriteError::AtomicReplaceUnsupported,
+                "atomic_replace_unsupported",
+            ),
+            (HookWriteError::WriteFailed, "write_failed"),
+            (HookWriteError::RestoreFailed, "restore_failed"),
+            (HookWriteError::RecoveryRequired, "recovery_required"),
+        ];
+
+        for (error, key) in expected {
+            let app_error = write_error(error);
+            assert_eq!(app_error.message, key);
+            let json = serde_json::to_value(&app_error).expect("serialize");
+            assert_eq!(json["message"], key, "{key} must reach the frontend as-is");
+        }
+    }
+
+    /// A request only ever names a source and a handler position — there is no
+    /// field a caller could put a filesystem path in.
+    #[test]
+    fn hook_edit_operations_deserialize_from_the_frontend_shape() {
+        let operations: Vec<HookEditOperationDto> = serde_json::from_str(
+            r#"[
+              {"kind":"create_handler","draft":{"event":"PreToolUse","matcher":"Bash",
+               "handlerType":"command","fields":{"command":"echo hi"}}},
+              {"kind":"update_handler","locator":{"event":"PreToolUse","groupIndex":0,"handlerIndex":1},
+               "draft":{"event":"PreToolUse","matcher":null,"handlerType":"command","fields":{}}},
+              {"kind":"delete_handler","locator":{"event":"Stop","groupIndex":2,"handlerIndex":0}}
+            ]"#,
+        )
+        .expect("frontend request shape");
+
+        assert_eq!(operations.len(), 3);
+        let serialized = serde_json::to_string(&operations).expect("serialize");
+        assert!(serialized.contains("\"groupIndex\""));
+        assert!(serialized.contains("\"handlerType\""));
+        assert!(!serialized.contains("path"));
+    }
+
+    /// Hook commands can carry credentials, so no part of the write path may
+    /// print or log. `hook_management` is allowed to write files — that is its
+    /// job — but not to emit anything.
+    #[test]
+    fn hook_write_source_has_no_log_call() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("core")
+            .join("hook_management.rs");
+        let text = fs::read_to_string(&file).expect("read production source");
+        let production = text.split("#[cfg(test)]").next().unwrap_or(&text).to_string();
+        for needle in [
+            "log::", "println!", "eprintln!", "info!", "warn!", "error!", "debug!", "trace!",
+            "Command::new",
+        ] {
+            assert!(
+                !production.contains(needle),
+                "hook_management.rs must not contain {needle}"
+            );
+        }
     }
 
     /// Hook commands can carry credentials, so the read path must not have a
