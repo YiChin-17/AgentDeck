@@ -1057,3 +1057,76 @@ export const applyHookRestore = (
     backupId,
     baseRevision,
   });
+
+// ── Plugin inventory (read-only) ──
+
+export type PluginAgentKey = "codex" | "claude_code";
+export type PluginCapabilityKey = "version" | "plugin_list" | "marketplace_list";
+export type PluginDiagnosticKey =
+  | "cli_missing"
+  | "unsupported_cli"
+  | "timeout"
+  | "non_zero_exit"
+  | "invalid_json"
+  | "output_too_large"
+  | "marketplace_unavailable";
+
+/**
+ * Every status-like field is a closed set that includes "unknown": the CLI not
+ * saying something is its own state, and must never collapse into a false.
+ */
+export type PluginPresenceKey = "installed" | "not_installed" | "unknown";
+export type PluginAvailabilityKey = "available" | "not_available" | "unknown";
+export type PluginScopeKey = "user" | "project" | "local" | "unknown";
+export type PluginEnablementKey = "enabled" | "disabled" | "unknown";
+export type PluginUpdateKey = "up_to_date" | "update_available" | "unknown";
+
+export interface PluginInventoryItem {
+  /** `<agent>:<marketplace>:<plugin id>` — route-local, stable within a response. */
+  id: string;
+  agent: PluginAgentKey;
+  pluginId: string;
+  displayName: string;
+  installed: PluginPresenceKey;
+  available: PluginAvailabilityKey;
+  /** Opaque: never parsed or compared as a version number. */
+  installedVersion: string | null;
+  availableVersion: string | null;
+  scope: PluginScopeKey;
+  marketplace: string | null;
+  enabled: PluginEnablementKey;
+  update: PluginUpdateKey;
+}
+
+export interface PluginMarketplace {
+  name: string;
+  source: string | null;
+}
+
+export interface PluginDiagnostic {
+  agent: PluginAgentKey;
+  capability: PluginCapabilityKey;
+  code: PluginDiagnosticKey;
+  exitStatus: number | null;
+}
+
+export interface PluginAgentInventory {
+  agent: PluginAgentKey;
+  cliVersion: string | null;
+  capabilities: PluginCapabilityKey[];
+  marketplaces: PluginMarketplace[];
+  items: PluginInventoryItem[];
+  diagnostics: PluginDiagnostic[];
+}
+
+export interface PluginInventory {
+  agents: PluginAgentInventory[];
+  generatedAt: string;
+}
+
+/**
+ * The whole read-only guarantee of the Plugins page starts here: the request
+ * has no fields, so the frontend cannot name an executable, a path or an
+ * argument for the backend to run.
+ */
+export const getPluginInventory = () => invoke<PluginInventory>("get_plugin_inventory");

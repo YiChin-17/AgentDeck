@@ -14,7 +14,8 @@
     "projects": "Project Workspaces",
     "addProject": "Link Project",
     "settings": "Settings",
-    "hooks": "Hooks"
+    "hooks": "Hooks",
+    "plugins": "Plugins"
   },
   "help": {
     "eyebrow": "Guide",
@@ -1256,6 +1257,74 @@
         "restore_failed": "The recovery point could not be used. The file was left as it was.",
         "recovery_required": "An interrupted Hook write must be recovered before further changes."
       }
+    }
+  },
+  "plugins": {
+    "title": "Plugins",
+    "subtitle": "What Codex and Claude Code report about their Plugins right now.",
+    "readOnlyBadge": "Read-only",
+    "loadFailed": "Could not read the Plugin inventory.",
+    "unknown": "Unknown",
+    "cliMissingHint": "AgentDeck could not find this CLI, so it reports nothing here.",
+    "cliVersion": "CLI version",
+    "capabilities": "Read capabilities",
+    "marketplaces": "Marketplaces",
+    "itemsHeading": "Plugins",
+    "detailsHeading": "Plugin details",
+    "noItems": "No Plugin matches these filters.",
+    "installedVersion": "Installed version",
+    "availableVersion": "Available version",
+    "filter": {
+      "all": "All",
+      "agent": "Agent",
+      "presence": "Presence",
+      "scope": "Scope",
+      "marketplace": "Marketplace",
+      "status": "Status"
+    },
+    "agent": {
+      "codex": "Codex",
+      "claude_code": "Claude Code"
+    },
+    "installed": {
+      "installed": "Installed",
+      "not_installed": "Not installed",
+      "unknown": "Unknown"
+    },
+    "available": {
+      "available": "Available",
+      "not_available": "Not available",
+      "unknown": "Unknown"
+    },
+    "scope": {
+      "user": "User",
+      "project": "Project",
+      "local": "Local",
+      "unknown": "Unknown"
+    },
+    "enabled": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "unknown": "Unknown"
+    },
+    "update": {
+      "up_to_date": "Up to date",
+      "update_available": "Update available",
+      "unknown": "Unknown"
+    },
+    "capability": {
+      "version": "Version",
+      "plugin_list": "Plugin listing",
+      "marketplace_list": "Marketplace listing"
+    },
+    "diagnostic": {
+      "cli_missing": "The CLI was not found",
+      "unsupported_cli": "The CLI did not answer the expected contract",
+      "timeout": "The command exceeded its 10-second deadline",
+      "non_zero_exit": "The command failed",
+      "invalid_json": "The response was not the expected JSON",
+      "output_too_large": "The response exceeded the 1 MiB limit",
+      "marketplace_unavailable": "The marketplace listing is unavailable"
     }
   }
 }

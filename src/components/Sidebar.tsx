@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   Webhook,
+  PlugZap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -170,6 +171,7 @@ export function Sidebar() {
     { name: t("sidebar.dashboard"), path: "/dashboard", icon: LayoutDashboard },
     { name: t("sidebar.installSkills"), path: "/install", icon: Download },
     { name: t("sidebar.hooks"), path: "/hooks", icon: Webhook },
+    { name: t("sidebar.plugins"), path: "/plugins", icon: PlugZap },
     { name: t("sidebar.backup"), path: "/backup", icon: CloudUpload },
   ];
   const isPresetContextActive = location.pathname === "/my-skills";

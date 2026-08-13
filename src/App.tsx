@@ -15,6 +15,7 @@ import { Settings } from "./views/Settings";
 import { ProjectDetail } from "./views/ProjectDetail";
 import { Backup } from "./views/Backup";
 import { Hooks } from "./views/Hooks";
+import { Plugins } from "./views/Plugins";
 
 function ThemedToaster() {
   const { resolvedTheme } = useThemeContext();
@@ -51,6 +52,7 @@ function App() {
               <Route path="/install" element={<InstallSkills />} />
               <Route path="/backup" element={<Backup />} />
               <Route path="/hooks" element={<Hooks />} />
+              <Route path="/plugins" element={<Plugins />} />
               <Route path="/project/:id" element={<ProjectDetail />} />
               <Route path="/settings" element={<Settings />} />
             </Route>

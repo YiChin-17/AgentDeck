@@ -1068,6 +1068,8 @@ pub fn run() {
             commands::hooks::get_hook_recovery,
             commands::hooks::preview_hook_restore,
             commands::hooks::apply_hook_restore,
+            // Plugins (read-only inventory)
+            commands::plugins::get_plugin_inventory,
             // Projects
             commands::projects::get_projects,
             commands::projects::add_project,

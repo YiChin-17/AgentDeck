@@ -14,7 +14,8 @@
     "projects": "專案工作區",
     "addProject": "關聯專案",
     "settings": "設定",
-    "hooks": "Hooks"
+    "hooks": "Hooks",
+    "plugins": "Plugin"
   },
   "help": {
     "eyebrow": "操作指南",
@@ -1256,6 +1257,74 @@
         "restore_failed": "無法使用該回復點，檔案維持原樣。",
         "recovery_required": "有一次中斷的 Hook 寫入需要先回復，才能繼續變更。"
       }
+    }
+  },
+  "plugins": {
+    "title": "Plugin",
+    "subtitle": "Codex 與 Claude Code 目前回報的 Plugin 狀態。",
+    "readOnlyBadge": "唯讀",
+    "loadFailed": "無法讀取 Plugin 清單。",
+    "unknown": "未知",
+    "cliMissingHint": "AgentDeck 找不到這個 CLI，因此這裡沒有可回報的內容。",
+    "cliVersion": "CLI 版本",
+    "capabilities": "可讀取的項目",
+    "marketplaces": "Marketplace",
+    "itemsHeading": "Plugin",
+    "detailsHeading": "Plugin 細節",
+    "noItems": "沒有符合這些篩選條件的 Plugin。",
+    "installedVersion": "已安裝版本",
+    "availableVersion": "可取得版本",
+    "filter": {
+      "all": "全部",
+      "agent": "Agent",
+      "presence": "安裝狀態",
+      "scope": "範圍",
+      "marketplace": "Marketplace",
+      "status": "啟用狀態"
+    },
+    "agent": {
+      "codex": "Codex",
+      "claude_code": "Claude Code"
+    },
+    "installed": {
+      "installed": "已安裝",
+      "not_installed": "未安裝",
+      "unknown": "未知"
+    },
+    "available": {
+      "available": "可取得",
+      "not_available": "無法取得",
+      "unknown": "未知"
+    },
+    "scope": {
+      "user": "使用者",
+      "project": "專案",
+      "local": "本機",
+      "unknown": "未知"
+    },
+    "enabled": {
+      "enabled": "已啟用",
+      "disabled": "已停用",
+      "unknown": "未知"
+    },
+    "update": {
+      "up_to_date": "已是最新",
+      "update_available": "有可更新版本",
+      "unknown": "未知"
+    },
+    "capability": {
+      "version": "版本",
+      "plugin_list": "Plugin 清單",
+      "marketplace_list": "Marketplace 清單"
+    },
+    "diagnostic": {
+      "cli_missing": "找不到這個 CLI",
+      "unsupported_cli": "CLI 沒有回應預期的介面",
+      "timeout": "指令超過 10 秒期限",
+      "non_zero_exit": "指令執行失敗",
+      "invalid_json": "回應不是預期的 JSON",
+      "output_too_large": "回應超過 1 MiB 上限",
+      "marketplace_unavailable": "無法取得 Marketplace 清單"
     }
   }
 }
