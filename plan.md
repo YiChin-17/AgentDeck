@@ -239,20 +239,22 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 4：Hooks
 
-目前狀態（2026-08-13）：進行中。第一個 Spectra change `inspect-codex-claude-hooks` 已完成並歸檔，交付 Codex／Claude Code Hooks 的唯讀 discovery、來源檢視、設定差異與 compatibility matrix。下一個 change 加入表單編輯、Agent-specific schema validation、write preview、可回復備份與 atomic write；仍不執行 Hook。
+目前狀態（2026-08-13）：已完成。`inspect-codex-claude-hooks` 與 `edit-codex-claude-hooks` 均已歸檔；Codex／Claude Code Hooks 現在具備固定來源 discovery、唯讀檢視、compatibility matrix、Agent-specific 表單驗證、write preview、外部修改衝突偵測、可回復備份、atomic write 與 restore，且不會執行 Hook。
 
 - [x] 先做讀取、檢視與 diff。
-- [ ] 加入表單編輯、Agent-specific schema validation、write preview、backup 與 atomic write。
+- [x] 加入表單編輯、Agent-specific schema validation、write preview、backup 與 atomic write。
 - [x] 加入 Codex／Claude compatibility matrix。
 
 完成標準：能安全讀寫兩者 Hooks，格式錯誤時不覆蓋原檔。
 
 ### Phase 5：Plugins
 
-- 建立 Codex 與 Claude CLI adapters。
-- 解析 CLI JSON 輸出。
-- 顯示 installed／available／version／scope／updates。
-- 依 CLI 能力加入 install、update、remove、enable、disable。
+目前狀態（2026-08-13）：準備第一個 Spectra change。已確認本機 Codex CLI 0.144.5 與 Claude Code 2.1.229 都提供 Plugin JSON inventory；第一個 change 只建立固定參數的唯讀 CLI adapters、正規化 inventory 與 Plugins 頁面，不執行安裝、更新、移除或 enable／disable。
+
+- [ ] 建立 Codex 與 Claude 唯讀 CLI capability adapters，限制 executable 與參數組合。
+- [ ] 解析 CLI JSON 輸出並正規化 installed／available／version／scope／marketplace／enabled／update 狀態。
+- [ ] 顯示 Agent、狀態、scope 與 marketplace filters，以及來源診斷與 Plugin details。
+- [ ] 依 CLI 實際能力，在後續 change 加入 install、update、remove、enable、disable。
 
 完成標準：常用 Plugin 操作能從同一 GUI 完成，官方 cache 與登入資料不被直接改寫。
 
@@ -287,7 +289,7 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 目前已驗證的基準結果（2026-08-13）：
 
 - 前端 production build 通過。
-- Rust tests：586 passed，0 failed。
+- Rust tests：653 passed，0 failed。
 - npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
@@ -301,15 +303,15 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 4 的 Hooks 安全編輯與寫入，不直接加入 Hook 執行、Plugin 或 Config Profile 功能：
+下一階段是 Phase 5 的 Plugin 唯讀 inventory，不直接加入 Plugin mutation、Hook 執行或 Config Profile 功能：
 
-1. 以既有 `hook-inspection` source id 與 linked Project 邊界選定可寫來源，frontend 仍不得傳入任意 filesystem path。
-2. 依 Codex／Claude Code 各自 schema 編輯 event、matcher 與 handler fields；未知欄位、JSON sibling keys、TOML 註解與排序必須在 round-trip 後保留。
-3. 寫入前產生實際設定檔 diff，驗證失敗或來源在預覽後被外部修改時拒絕套用，不覆蓋較新的內容。
-4. 套用時先建立可回復備份，再以同目錄暫存檔與 atomic replacement 寫入；任一步驟失敗都不得留下部分寫入或損壞原檔。
-5. 明確定義 Hook Artifact identity、backup metadata 與 restore 邊界，但不得把 Hook command、prompt、URL、headers 或其他敏感內容寫入 SQLite、一般 Library、logs 或 Git backup。
-6. 只在下一個 Spectra change 的 proposal、design、spec 與 tasks 通過 analyze 與 validate 後開始實作。
+1. 以固定 executable 與 allowlist 參數呼叫 `codex plugin list --available --json`、`codex plugin marketplace list --json` 與 `claude plugin list --available --json`；frontend 不得提交 executable、filesystem path 或任意 CLI arguments。
+2. 先偵測 Codex／Claude Code CLI 是否存在及版本，再將 JSON 正規化為 AgentDeck 自己的 Plugin DTO；Agent-specific 未提供的欄位必須標記 unknown，不得猜測或跨 Agent 補值。
+3. CLI timeout、非零 exit、invalid JSON、oversized output、缺少 CLI 與離線 marketplace 必須各自產生 sanitized diagnostics；單一 Agent 失敗不得隱藏另一個 Agent 的 inventory。
+4. Plugins 頁面顯示 installed／available、version、scope、marketplace、enabled 與 update 狀態，以及 Agent／狀態／scope／marketplace filters 與 read-only details。
+5. Plugin inventory 不建立 Artifact、deployment 或 cache rows，不讀寫官方 Plugin cache，不保存 CLI stdout、token、登入資訊、marketplace credentials 或任意 Plugin payload到 SQLite、Library、logs、localStorage 或 Git backup。
+6. 只在下一個 Spectra change 的 proposal、design、spec 與 tasks 通過 analyze 與 validate 後開始實作；install、update、remove、enable、disable 留給後續 change。
 
 ## 13. 尚待使用者決定
 
-目前無。Hooks 唯讀檢視已完成；下一個 change 的範圍固定為安全編輯、驗證、預覽、backup、atomic write 與 restore，不包含 Hook 執行。
+目前無。Hooks 階段已完成；下一個 change 的範圍固定為 Codex／Claude Code Plugin CLI capability detection、唯讀 inventory 正規化與 Plugins 頁面，不包含任何 Plugin mutation。
