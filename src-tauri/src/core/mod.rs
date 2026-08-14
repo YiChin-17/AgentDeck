@@ -23,6 +23,7 @@ pub mod migrations;
 pub mod panic_log;
 pub mod path_guard;
 pub mod plugin_inventory;
+pub mod plugin_mutation;
 pub mod project_scanner;
 pub mod repo_lock;
 pub mod scanner;

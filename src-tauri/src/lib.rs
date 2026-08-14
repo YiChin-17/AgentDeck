@@ -806,6 +806,10 @@ pub fn run() {
     tauri::Builder::default()
         .manage(store)
         .manage(cancel_registry)
+        // Pending Plugin mutation previews. Memory only: a token that does not
+        // survive a restart cannot be applied after the state it described has
+        // moved on.
+        .manage(core::plugin_mutation::PluginMutationState::default())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             restore_main_window(app);
         }))
@@ -1070,6 +1074,9 @@ pub fn run() {
             commands::hooks::apply_hook_restore,
             // Plugins (read-only inventory)
             commands::plugins::get_plugin_inventory,
+            // Plugins (user-scope mutation)
+            commands::plugin_mutation::preview_plugin_mutation,
+            commands::plugin_mutation::apply_plugin_mutation,
             // Projects
             commands::projects::get_projects,
             commands::projects::add_project,

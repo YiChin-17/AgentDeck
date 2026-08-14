@@ -9,7 +9,7 @@ use std::io::ErrorKind;
 use std::process::Stdio;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
@@ -27,7 +27,9 @@ pub const MAX_VERSION_CHARS: usize = 128;
 // Vocabulary
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// Deserializable because a mutation request names the Agent it targets; every
+/// other value in this module travels outwards only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginAgent {
     Codex,
@@ -185,14 +187,14 @@ pub fn fixed_command(agent: PluginAgent, capability: PluginCapability) -> &'stat
 // Bounded process runner
 // ---------------------------------------------------------------------------
 
-enum StreamRead {
+pub(crate) enum StreamRead {
     Bounded(Vec<u8>),
     TooLarge,
 }
 
 /// Reads at most `MAX_STREAM_BYTES` and stops. Reading one byte past the limit
 /// is what makes the exact limit acceptable and the next byte a failure.
-async fn read_bounded<R>(mut stream: R) -> std::io::Result<StreamRead>
+pub(crate) async fn read_bounded<R>(mut stream: R) -> std::io::Result<StreamRead>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -301,10 +303,10 @@ async fn run_bounded(mut command: Command, deadline: Duration) -> Result<Vec<u8>
 
 /// Terminates the child and waits for it, so a killed process never stays a
 /// zombie for the lifetime of the application.
-async fn kill_and_reap(
-    child: &mut tokio::process::Child,
-    code: PluginDiagnosticCode,
-) -> PluginDiagnosticCode {
+///
+/// Generic over the code it returns so the read-only and the mutation runner
+/// share one reaping path while keeping their own failure vocabularies.
+pub(crate) async fn kill_and_reap<T>(child: &mut tokio::process::Child, code: T) -> T {
     let _ = child.start_kill();
     let _ = child.wait().await;
     code
@@ -402,6 +404,10 @@ pub struct PluginAgentInventoryDto {
     pub cli_version: Option<String>,
     /// The read capabilities that actually answered for this response.
     pub capabilities: Vec<PluginCapability>,
+    /// The mutations this Agent's CLI documents. A static fact about the CLI,
+    /// shipped with the inventory so the page never has to guess from a name
+    /// what an Agent can be asked to do.
+    pub mutations: Vec<crate::core::plugin_mutation::PluginOperation>,
     pub marketplaces: Vec<PluginMarketplaceDto>,
     pub items: Vec<PluginInventoryItemDto>,
     pub diagnostics: Vec<PluginDiagnosticDto>,
@@ -892,6 +898,7 @@ fn assemble_agent(outputs: &[CommandOutput], agent: PluginAgent) -> PluginAgentI
         agent,
         cli_version,
         capabilities,
+        mutations: crate::core::plugin_mutation::supported_operations(agent),
         marketplaces,
         items,
         diagnostics,

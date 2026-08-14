@@ -1262,7 +1262,7 @@
   "plugins": {
     "title": "Plugin",
     "subtitle": "Codex 與 Claude Code 目前回報的 Plugin 狀態。",
-    "readOnlyBadge": "唯讀",
+    "officialCliUserScopeBadge": "僅透過官方 CLI、僅 user scope",
     "loadFailed": "無法讀取 Plugin 清單。",
     "unknown": "未知",
     "cliMissingHint": "AgentDeck 找不到這個 CLI，因此這裡沒有可回報的內容。",
@@ -1325,6 +1325,50 @@
       "invalid_json": "回應不是預期的 JSON",
       "output_too_large": "回應超過 1 MiB 上限",
       "marketplace_unavailable": "無法取得 Marketplace 清單"
+    },
+    "mutation": {
+      "heading": "Plugin 操作",
+      "applying": "正在執行指令…",
+      "failed": "無法啟動這個 Plugin 操作",
+      "verified": "{{operation}} 已由重新取得的 Plugin 清單確認",
+      "operation": {
+        "install": "安裝",
+        "update": "更新",
+        "remove": "移除",
+        "enable": "啟用",
+        "disable": "停用"
+      },
+      "disabled": {
+        "unsupported": "這個 Agent 的 CLI 沒有對應的 Plugin 指令",
+        "scope": "AgentDeck 只變更 user scope 的 Plugin",
+        "precondition": "這個 Plugin 目前的狀態不適用該操作"
+      },
+      "confirm": {
+        "title": "執行前請確認指令",
+        "destructiveTitle": "要移除這個 Plugin 嗎？",
+        "warning": "AgentDeck 無法復原移除。這個 Plugin 由官方 CLI 保管。",
+        "agent": "Agent",
+        "plugin": "Plugin",
+        "marketplace": "Marketplace",
+        "scope": "Scope",
+        "command": "指令",
+        "apply": "執行",
+        "cancel": "取消"
+      },
+      "diagnostic": {
+        "operation_unsupported": "這個 Agent 的 CLI 沒有對應的 Plugin 指令",
+        "identity_not_found": "目前的清單裡已經沒有這個 Plugin",
+        "scope_unsupported": "AgentDeck 只變更 user scope 的 Plugin",
+        "precondition_failed": "這個 Plugin 目前的狀態不適用該操作",
+        "preview_expired": "確認已逾時或已使用過，請重新操作",
+        "stale_preview": "確認之後 Plugin 狀態已改變，請重新操作",
+        "interactive_confirmation_required": "這個 Plugin 需要在官方 CLI 裡接受 marketplace 指令",
+        "verification_failed": "指令執行完成，但新的清單沒有顯示這項變更",
+        "cli_missing": "找不到這個 CLI",
+        "timeout": "指令超過 10 秒期限",
+        "non_zero_exit": "指令執行失敗",
+        "output_too_large": "回應超過 1 MiB 上限"
+      }
     }
   }
 }

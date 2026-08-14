@@ -69,36 +69,15 @@ for (const forbidden of ['Path', 'executable', 'args', 'cwd', 'env']) {
   );
 }
 
-// ── No mutation, validation, details or eval surface ──
-const FORBIDDEN_COMMANDS = [
-  'install_plugin',
-  'update_plugin',
-  'remove_plugin',
-  'uninstall_plugin',
-  'enable_plugin',
-  'disable_plugin',
-  'validate_plugin',
-  'plugin_details',
-  'plugin_eval',
-  'add_plugin_marketplace',
-  'remove_plugin_marketplace',
-  'update_plugin_marketplace',
-];
-for (const command of FORBIDDEN_COMMANDS) {
-  require(!api.includes(command), `tauri.ts must not expose ${command}`);
-  require(!view.includes(command), `the Plugins view must not call ${command}`);
-}
+// ── No arbitrary process execution, validation, details or eval surface ──
+// Mutation is handled through the preview/apply flow defined in
+// check-plugin-mutations.mjs.  The inventory adapter boundary still requires
+// that the view never invokes raw IPC, shell commands, or direct writes.
 const FORBIDDEN_CALLS = ['invoke(', 'Command(', 'shell', 'writeTextFile', 'api.installLocal'];
 for (const call of FORBIDDEN_CALLS) {
   require(!view.includes(call), `the Plugins view must not call ${call}`);
 }
 for (const label of [
-  'installPlugin',
-  'updatePlugin',
-  'removePlugin',
-  'uninstallPlugin',
-  'enablePlugin',
-  'disablePlugin',
   'validatePlugin',
   'pluginDetails',
   'runEval',
@@ -106,8 +85,8 @@ for (const label of [
   require(!view.includes(label), `the Plugins page must not offer ${label}`);
 }
 require(
-  view.includes('t("plugins.readOnlyBadge")'),
-  'the Plugins page must label itself read-only'
+  view.includes('t("plugins.officialCliUserScopeBadge")'),
+  'the Plugins page must display the official CLI / user scope badge'
 );
 
 // ── The five filters ──
@@ -175,7 +154,7 @@ const REQUIRED_KEYS = [
   'sidebar.plugins',
   'plugins.title',
   'plugins.subtitle',
-  'plugins.readOnlyBadge',
+  'plugins.officialCliUserScopeBadge',
   'plugins.loadFailed',
   'plugins.unknown',
   'plugins.cliMissingHint',

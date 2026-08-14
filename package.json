@@ -12,6 +12,7 @@
     "check:i18n": "node scripts/check-i18n-locales.mjs",
     "check:hooks-ui": "node scripts/check-hooks-ui.mjs",
     "check:no-app-updater": "node scripts/check-no-upstream-app-updater.mjs",
+    "check:plugin-mutations": "node scripts/check-plugin-mutations.mjs",
     "check:plugins-ui": "node scripts/check-plugins-ui.mjs",
     "check:product-identity": "node scripts/check-product-identity.mjs",
     "check:skill-pack-ui": "node scripts/check-skill-pack-ui.mjs",

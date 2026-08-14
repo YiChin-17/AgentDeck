@@ -1110,10 +1110,14 @@ export interface PluginDiagnostic {
   exitStatus: number | null;
 }
 
+export type PluginOperationKey = "install" | "update" | "remove" | "enable" | "disable";
+
 export interface PluginAgentInventory {
   agent: PluginAgentKey;
   cliVersion: string | null;
   capabilities: PluginCapabilityKey[];
+  /** The mutations this Agent's CLI documents, decided by the backend. */
+  mutations: PluginOperationKey[];
   marketplaces: PluginMarketplace[];
   items: PluginInventoryItem[];
   diagnostics: PluginDiagnostic[];
@@ -1130,3 +1134,79 @@ export interface PluginInventory {
  * argument for the backend to run.
  */
 export const getPluginInventory = () => invoke<PluginInventory>("get_plugin_inventory");
+
+// ── Plugin mutation (user scope, preview then apply) ──
+
+export type PluginMutationCodeKey =
+  | "operation_unsupported"
+  | "identity_not_found"
+  | "scope_unsupported"
+  | "precondition_failed"
+  | "preview_expired"
+  | "stale_preview"
+  | "interactive_confirmation_required"
+  | "verification_failed"
+  | "cli_missing"
+  | "timeout"
+  | "non_zero_exit"
+  | "output_too_large";
+
+export interface PluginMutationDiagnostic {
+  /** Null when the token named no intent AgentDeck still holds. */
+  agent: PluginAgentKey | null;
+  operation: PluginOperationKey | null;
+  code: PluginMutationCodeKey;
+  exitStatus: number | null;
+}
+
+/** One reviewable intent. Everything in it was decided by the backend. */
+export interface PluginMutationPreview {
+  token: string;
+  expiresAt: string;
+  agent: PluginAgentKey;
+  operation: PluginOperationKey;
+  pluginId: string;
+  marketplace: string;
+  scope: PluginScopeKey;
+  argvDisplay: string;
+  destructive: boolean;
+  baseFingerprint: string;
+}
+
+export type PluginMutationPreviewOutcome =
+  | { status: "ready"; preview: PluginMutationPreview }
+  | { status: "failed"; diagnostic: PluginMutationDiagnostic };
+
+export type PluginMutationApplyOutcome =
+  | {
+      status: "verified";
+      agent: PluginAgentKey;
+      operation: PluginOperationKey;
+      pluginId: string;
+      marketplace: string;
+      inventory: PluginInventory;
+    }
+  | {
+      status: "failed";
+      diagnostic: PluginMutationDiagnostic;
+      inventory: PluginInventory | null;
+    };
+
+/**
+ * Asks what a mutation would do. The four fields below are the whole request:
+ * the scope, the program and every option come from a fixed backend table, so
+ * there is nothing here for a caller to redirect.
+ */
+export const previewPluginMutation = (request: {
+  agent: PluginAgentKey;
+  operation: PluginOperationKey;
+  pluginId: string;
+  marketplace: string;
+}) => invoke<PluginMutationPreviewOutcome>("preview_plugin_mutation", { request });
+
+/**
+ * Runs the intent a token stands for. The token is the only thing that travels,
+ * so a mutation can never differ from the preview the user confirmed.
+ */
+export const applyPluginMutation = (token: string) =>
+  invoke<PluginMutationApplyOutcome>("apply_plugin_mutation", { request: { token } });

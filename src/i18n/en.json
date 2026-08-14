@@ -1262,7 +1262,7 @@
   "plugins": {
     "title": "Plugins",
     "subtitle": "What Codex and Claude Code report about their Plugins right now.",
-    "readOnlyBadge": "Read-only",
+    "officialCliUserScopeBadge": "Official CLI, user scope only",
     "loadFailed": "Could not read the Plugin inventory.",
     "unknown": "Unknown",
     "cliMissingHint": "AgentDeck could not find this CLI, so it reports nothing here.",
@@ -1325,6 +1325,50 @@
       "invalid_json": "The response was not the expected JSON",
       "output_too_large": "The response exceeded the 1 MiB limit",
       "marketplace_unavailable": "The marketplace listing is unavailable"
+    },
+    "mutation": {
+      "heading": "Plugin operation",
+      "applying": "Running the command…",
+      "failed": "The Plugin operation could not be started",
+      "verified": "{{operation}} confirmed by a fresh Plugin listing",
+      "operation": {
+        "install": "Install",
+        "update": "Update",
+        "remove": "Remove",
+        "enable": "Enable",
+        "disable": "Disable"
+      },
+      "disabled": {
+        "unsupported": "This Agent's CLI has no such Plugin command",
+        "scope": "AgentDeck only changes user-scope Plugins",
+        "precondition": "This Plugin is not in a state where the operation applies"
+      },
+      "confirm": {
+        "title": "Review the command before it runs",
+        "destructiveTitle": "Remove this Plugin?",
+        "warning": "Removal cannot be undone from AgentDeck. The official CLI owns this Plugin.",
+        "agent": "Agent",
+        "plugin": "Plugin",
+        "marketplace": "Marketplace",
+        "scope": "Scope",
+        "command": "Command",
+        "apply": "Run it",
+        "cancel": "Cancel"
+      },
+      "diagnostic": {
+        "operation_unsupported": "This Agent's CLI has no such Plugin command",
+        "identity_not_found": "That Plugin is no longer in the current listing",
+        "scope_unsupported": "AgentDeck only changes user-scope Plugins",
+        "precondition_failed": "That Plugin is not in a state where the operation applies",
+        "preview_expired": "The confirmation expired or was already used. Start again.",
+        "stale_preview": "The Plugin state changed since you confirmed. Start again.",
+        "interactive_confirmation_required": "This Plugin needs a marketplace command accepted in the official CLI",
+        "verification_failed": "The command finished, but the new listing does not show the change",
+        "cli_missing": "The CLI was not found",
+        "timeout": "The command exceeded its 10-second deadline",
+        "non_zero_exit": "The command failed",
+        "output_too_large": "The response exceeded the 1 MiB limit"
+      }
     }
   }
 }
