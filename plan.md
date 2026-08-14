@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-13
+最後更新：2026-08-14
 
 ## 1. 專案摘要
 
@@ -249,14 +249,14 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 5：Plugins
 
-目前狀態（2026-08-13）：第一個 change `inspect-codex-claude-plugins` 已完成並歸檔。Codex／Claude Code 固定參數唯讀 CLI adapters、bounded inventory、Agent-specific normalization、隔離診斷與 Plugins 頁面已實作；完整 Rust suite 699 tests、frontend build、lint、i18n 與 Plugins UI contract 均通過。下一個 change 依本機 Codex CLI 0.144.5 與 Claude Code 2.1.231 的實際 help contract，加入 user scope 的安全 Plugin mutation preview 與執行。
+目前狀態（2026-08-14）：已完成。`inspect-codex-claude-plugins` 與 `manage-user-scoped-plugins` 均已歸檔；Codex／Claude Code 固定參數 CLI adapters、bounded inventory、Agent-specific normalization、Plugins 頁面與 user scope mutation preview／apply 已實作。完整 Rust suite 762 tests、frontend build、lint、i18n、Plugins UI contract、mutation contract 與人工 GUI success／stale／cancel 流程均通過。
 
 - [x] 建立 Codex 與 Claude 唯讀 CLI capability adapters，限制 executable 與參數組合。
 - [x] 解析 CLI JSON 輸出並正規化 installed／available／version／scope／marketplace／enabled／update 狀態。
 - [x] 顯示 Agent、狀態、scope 與 marketplace filters，以及來源診斷與 Plugin details。
-- [ ] 依 CLI 實際能力，在後續 change 加入 install、update、remove、enable、disable。
+- [x] 依 CLI 實際能力加入 install、update、remove、enable、disable。
 
-下一個 change 的邊界：
+已完成 change 的邊界：
 
 - Codex 只提供 user scope 的 add／remove；不把重新 add 推測成 update，也不提供 CLI 未宣告的 enable／disable。
 - Claude Code 提供 user scope 的 install／update／uninstall／enable／disable，所有 scope 都顯式傳入 `user`。
@@ -268,9 +268,18 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 6：Config Profiles
 
-- 支援 Codex TOML 與 Claude JSON 的可選欄位集合。
-- 建立 profile、專案指派、preview diff、backup 與 restore。
+- [ ] 先以固定、受支援的路徑唯讀取得 Codex TOML 與 Claude JSON 設定，保留來源 scope、解析錯誤與未知欄位，不讀取或顯示 secret 值。
+- [ ] 建立 Agent-specific 可選欄位集合與 canonical normalization，顯示 user／project／local 有效值、來源與唯讀 diff。
+- [ ] 建立 profile、專案指派、write preview、外部修改衝突偵測、backup、atomic write 與 restore。
 - secrets 只保留引用或交由系統安全儲存，不寫進 profile。
+
+下一個 change 的邊界：
+
+- change 名稱固定為 `inspect-codex-claude-config-profiles`，只建立唯讀 discovery、解析、正規化、來源診斷與 Config Profiles 頁面。
+- Codex 只讀 `~/.codex/config.toml` 與已登錄專案的 `<repo>/.codex/config.toml`；Claude Code 只讀 `~/.claude/settings.json`、`<repo>/.claude/settings.json` 與 `<repo>/.claude/settings.local.json`。
+- 只顯示明確 allowlist 的非敏感欄位；secret、credential、token、API key、環境變數值與未知欄位內容不進入 frontend DTO 或 log。
+- 保留 Agent、scope、來源檔案、存在狀態、解析狀態與檔案 fingerprint；無效 TOML／JSON 以 typed diagnostic 隔離，不讓單一來源使整頁失敗。
+- 本 change 不建立持久 Config Profile、不寫回設定檔、不套用專案指派、不建立 backup／restore，也不修改系統安全儲存。
 
 完成標準：能把同一組非敏感設定安全套用到多個專案，並可預覽及回復。
 
@@ -294,10 +303,10 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 - 外接 Library 拔除或 unmount 的 offline 測試。
 - 套用、取消與回復流程的人工 GUI 驗證。
 
-目前已驗證的基準結果（2026-08-13）：
+目前已驗證的基準結果（2026-08-14）：
 
 - 前端 production build 通過。
-- Rust tests：653 passed，0 failed。
+- Rust tests：762 passed，0 failed。
 - npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
@@ -311,16 +320,16 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 5 的 user-scope Plugin mutation，不加入 project／local scope、marketplace mutation、Hook 執行或 Config Profile 功能：
+下一階段是 Phase 6 的唯讀 Config Profile inspection，不建立 profile、不寫回設定檔，也不套用專案指派：
 
-1. Codex capability matrix 固定為 add／remove；Claude Code capability matrix 固定為 install／update／uninstall／enable／disable。frontend 只能提交 Agent、operation 與 inventory 中的 Plugin identity，不能提交 executable、filesystem path、cwd、environment 或任意 CLI arguments。
-2. mutation 分成 preview 與 apply：preview 回傳固定 argv 的非敏感顯示、base inventory fingerprint 與一次性 token；apply 必須匹配 Agent、operation、Plugin identity、user scope 與未過期 fingerprint，否則不啟動 CLI。
-3. 所有 process 維持 no-shell、closed stdin、bounded stdout／stderr、timeout、kill／reap 與 sanitized diagnostics；禁止 `-y`、`--config`、`--keep-data`、`--prune`、`--all`，需要 TTY 或 marketplace 外部命令確認時回報 typed `interactive_confirmation_required`。
-4. apply 成功後重新取得 inventory，GUI 只在新 inventory 證明目標狀態後顯示成功；timeout、non-zero exit、invalid JSON、stale preview 或 refresh failure 不得以 optimistic state 宣告成功。
-5. Plugins 頁面只對 capability matrix 與有效 item state 顯示操作；Claude 要求 user-scope record，Codex 則由 fixed add／remove contract 定義 user scope並保留 inventory 的 `unknown`。具破壞性的 remove／uninstall 要清楚顯示 Agent、Plugin、marketplace 與 preview scope，並使用同一 preview 進行二次確認。
-6. mutation 不直接讀寫官方 Plugin cache、不建立 Plugin Artifact／deployment／Library copy／Git backup metadata，也不記錄 stdout、stderr、token、登入資訊、marketplace credentials 或 Plugin payload。
+1. change 名稱為 `inspect-codex-claude-config-profiles`；Codex 與 Claude Code 只掃描計畫中列出的固定 user／project／local 設定檔，project path 必須來自 AgentDeck 已登錄專案。
+2. backend 以 Agent-specific parser 讀取 TOML／JSON，將 allowlist 內的非敏感設定正規化為共同 DTO，同時保留 Agent、scope、來源、存在狀態、解析狀態與 fingerprint。
+3. secret、credential、token、API key、環境變數值與未知欄位內容不得跨過 backend boundary；frontend 只接收可安全顯示的欄位和值。
+4. 一個來源不存在或格式錯誤時回傳 typed diagnostic，其餘來源仍可顯示；唯讀檢視不得修復、格式化或覆寫原檔。
+5. Config Profiles 頁面顯示 Agent／scope／project filters、來源診斷、有效值來源與 user／project／local 差異；未實作的 create／assign／apply／backup／restore 不呈現可操作控制項。
+6. 測試使用暫存設定檔涵蓋有效、缺檔、無效格式、未知欄位與敏感資料遮蔽；不得讀寫真實 `~/.codex`、`~/.claude` 或系統安全儲存。
 7. proposal、design、spec 與 tasks 必須通過 `spectra analyze` 與 `spectra validate` 後 park；本輪不直接實作。
 
 ## 13. 尚待使用者決定
 
-目前無。Plugin 唯讀 inventory 已完成；下一個 change 的範圍固定為 user-scope Plugin mutation preview 與執行，不包含 project／local scope、marketplace mutation、Plugin payload inspection 或 persistent Plugin model。
+目前無。Plugins 階段已完成；下一個 change 的範圍固定為 Codex／Claude Code Config 的唯讀 discovery、正規化與差異檢視，不包含 profile persistence、設定檔 mutation、專案指派、backup／restore 或 secret storage。
