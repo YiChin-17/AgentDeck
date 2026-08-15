@@ -7,6 +7,7 @@
 // user's real CLI. Uses only the Node standard library.
 import fs from 'node:fs';
 import path from 'node:path';
+import { wrapperArgumentSurface } from './frontend-argument-surface.mjs';
 
 const root = process.cwd();
 const errors = [];
@@ -61,10 +62,20 @@ require(
   view.includes('api.getPluginInventory()'),
   'the Plugins view must load through the getPluginInventory wrapper'
 );
-const pluginApi = api.slice(api.indexOf('export const getPluginInventory'));
+// Only the Plugin wrappers are in scope: declarations that merely sit after
+// them in the same file are not part of the Plugin request surface.
+const pluginSurface = wrapperArgumentSurface(api, [
+  'getPluginInventory',
+  'previewPluginMutation',
+  'applyPluginMutation',
+]);
+require(
+  pluginSurface.missing.length === 0,
+  `tauri.ts must declare every Plugin wrapper (missing: ${pluginSurface.missing.join(', ')})`
+);
 for (const forbidden of ['Path', 'executable', 'args', 'cwd', 'env']) {
   require(
-    !pluginApi.includes(forbidden),
+    !pluginSurface.surface.includes(forbidden),
     `no Plugin command may take ${forbidden} from the frontend`
   );
 }

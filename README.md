@@ -257,28 +257,70 @@ npm run tauri:build
 npm run cli:build
 ```
 
+## Personal installation (macOS)
+
+AgentDeck is installed by building it yourself. There is no published download: this project ships **no application auto-update**, no public release hosting, no Developer ID signing and **no notarization guarantee**. What you install is a personal local build of the commit you checked out, and every statement below applies to that build only.
+
+### 1. Build from the committed lockfiles
+
+```bash
+npm ci
+npm run tauri:build
+```
+
+`npm ci` installs the exact dependency versions in `package-lock.json`, and the Rust side builds against `src-tauri/Cargo.lock`, so the same commit produces the same application. The build writes:
+
+- `src-tauri/target/release/bundle/macos/AgentDeck.app` — the application
+- `src-tauri/target/release/bundle/dmg/AgentDeck_<version>_<arch>.dmg` — the macOS installer for that same build
+
+Neither is tracked in Git. Verify what you just built with:
+
+```bash
+npm run check:personal-installation
+```
+
+It confirms the bundle name, the `io.github.yichin17.agentdeck` Bundle ID, the version, the executable, the installer and the absence of any application updater surface, and prints one summary line.
+
+### 2. Install the application
+
+Open the `.dmg` and drag `AgentDeck.app` into `/Applications`, or copy the `.app` there yourself. A personal `~/Applications` folder works the same way.
+
+Because this build is not signed by a Developer ID certificate, macOS asks you to approve it once. Approve the app itself — right-click it in Finder and choose **Open**, or open **System Settings → Privacy & Security** and click **Open Anyway** after the first blocked launch. That is a per-application approval; do not turn off Gatekeeper or any other system security check to run this build.
+
+### 3. First launch and existing data
+
+On first launch AgentDeck opens the data that is already on the machine. It reuses the existing `.skills-manager` storage directory, the `skills-manager.db` SQLite database, presets, registered Projects, deployment records, Git backup metadata, the `skills-manager-git-backup` Keychain entry and the local preference keys, all under their existing names. The schema migration runs in place and is retryable; nothing is renamed, moved, duplicated or deleted.
+
+If you also used **Skills Manager.app** before, close it before starting AgentDeck — the two are separate applications sharing the same data.
+
+### 4. Library location and reconnecting an offline Library
+
+An internal Library lives inside the application's own data directory. An external Library stays wherever you configured it, including a removable or network volume.
+
+When a configured external Library is unreachable, AgentDeck shows **Library Offline** for that Library and changes nothing: it does not create a replacement Library, does not repoint deployments and does not record deletions. Reconnect the volume and use the **Retry** action to bring the same Library back.
+
+### 5. Back up and restore
+
+Use the **Backup** page to connect a Git remote, then **Back Up Now** for an immediate versioned backup. To restore, open the backup history and pick a snapshot — the current state is saved as its own snapshot first, so a restore is undoable. On a machine with an empty library, the first launch offers to restore from an existing backup instead of starting fresh. See [Backup & Multi-Device Sync](#backup--multi-device-sync) for the full behavior.
+
+### 6. Uninstall
+
+Removing `AgentDeck.app` from `/Applications` removes the application only. **It does not remove your data.** Your library, database, backup metadata and stored credential stay where they are, so reinstalling a later build picks them up again.
+
+If you also want the data gone, remove these individually, and only the ones you actually want to lose:
+
+- the `.skills-manager` storage directory in your home folder — library content, presets and deployment records
+- an external Library directory, if you configured one outside that storage directory
+- the `skills-manager-git-backup` entry in **Keychain Access** — the Git backup credential
+- the Git backup remote itself, if you no longer want the versioned history
+
+The `skills-manager-cli` binary, if you installed it, lives at `~/.cargo/bin/skills-manager-cli` and is removed separately.
+
 ## Troubleshooting
 
-### macOS: Gatekeeper blocks the app on first launch (v1.28.5 and earlier)
+### macOS asks for the `skills-manager-git-backup` keychain entry again
 
-Releases from **v1.29.0** onward are signed with an Apple Developer ID certificate and notarized by Apple, so they open normally — no warning, no Terminal commands. If you are on an older build, upgrading is the fix.
-
-Releases **up to and including v1.28.5** predate notarization, and macOS blocks them:
-
-<p align="center">
-  <img src="assets/CleanShot_20260530_093302@2x.png" width="320" alt="macOS Gatekeeper warning: Apple could not verify skills-manager.app is free of malware" />
-</p>
-
-- **"Apple could not verify … is free of malware"** or **"App can't be opened because it is from an unidentified developer"** (v1.20.0 – v1.28.5) — On macOS 15 (Sequoia) the dialog above only offers **Move to Trash** / **Done**: click **Done**, then open **System Settings → Privacy & Security** and click **Open Anyway** (it appears after the first blocked launch). On older macOS you can instead right-click the app in Finder and choose **Open**, then confirm in the dialog.
-- **"App is damaged and can't be opened"** (v1.19.0 and earlier) — Run this in Terminal, then open the app again:
-
-  ```bash
-  xattr -cr /Applications/skills-manager.app
-  ```
-
-  Replace the path with wherever you placed the `.app` file if it's not in `/Applications`.
-
-Upgrading to a notarized build changes the app's code signature, so macOS may ask again for permission to read the `skills-manager-git-backup` keychain entry. Click **Always Allow** — the signing identity is stable from v1.29.0 onward, so later updates should not ask again.
+A personal build's code signature changes whenever you rebuild it, and macOS ties keychain access to that signature. After installing a new local build, the first Git backup may ask for permission to read the `skills-manager-git-backup` entry. Click **Always Allow** for the new build.
 
 ## Star History
 

@@ -212,42 +212,35 @@ code:
 ---
 ### Requirement: Personal installation is the documented release policy
 
-The project plan MUST define AgentDeck as a personal-installation project without application auto-update. Public release hosting, signing distribution, notarization, and binary update trust MUST require a separate future change before they become implementation requirements.
+The project plan and personal installation documentation MUST define AgentDeck as a local personal-installation project without application auto-update. The documentation MUST distinguish a locally generated bundle from an upstream or publicly distributed release and MUST NOT claim public release hosting, distribution signing, notarization, binary update trust, or an application update service. Any public distribution or application update trust MUST require a separate future change before it becomes an implementation or documentation requirement.
 
 #### Scenario: Maintainer reads the stabilization phase
 
 - **WHEN** a maintainer reads Phase 7 of the project plan
-- **THEN** local build, stabilization, backup, and uninstall verification remain in scope
+- **THEN** local build, packaged smoke, stabilization, backup, and uninstall verification remain in scope
 - **AND** public distribution and application auto-update are not listed as current completion criteria
 
+#### Scenario: User reads the personal installation documentation
+
+- **WHEN** a user reads the local build, installation, or troubleshooting instructions
+- **THEN** the documentation identifies the artifact as a personal local build without application auto-update
+- **AND** it does not attribute upstream signing, notarization, hosting, or binary update trust to that artifact
+- **AND** it does not instruct the user to disable Gatekeeper or system security checks
+
 <!-- @trace
-source: remove-upstream-app-updater
-updated: 2026-08-11
+source: stabilize-personal-installation
+updated: 2026-08-15
 code:
-  - src/i18n/en.json
-  - src-tauri/src/core/git_backup.rs
-  - src-tauri/src/commands/tools.rs
-  - src/lib/tauri.ts
-  - src-tauri/src/commands/presets.rs
-  - README.md
-  - src/views/Settings.tsx
-  - src-tauri/src/commands/scan.rs
+  - scripts/check-hooks-ui.mjs
+  - scripts/check-personal-installation.mjs
+  - scripts/check-personal-installation.test.mjs
+  - scripts/check-plugins-ui.mjs
+  - docs/personal-installation-verification.md
   - plan.md
-  - src-tauri/src/commands/skills.rs
-  - scripts/check-no-upstream-app-updater.mjs
-  - src/components/Sidebar.tsx
-  - src-tauri/src/core/app_state.rs
-  - src-tauri/src/commands/settings.rs
-  - src-tauri/tauri.conf.json
-  - package.json
-  - src-tauri/capabilities/default.json
-  - src/context/AppContext.tsx
-  - src-tauri/src/core/sync_metadata.rs
-  - src-tauri/src/lib.rs
-  - src/views/Backup.tsx
-  - src-tauri/src/commands/git_backup.rs
   - scripts/check-no-upstream-app-updater.test.mjs
-  - src/i18n/zh-TW.json
-  - src-tauri/src/core/library_availability.rs
-  - src-tauri/Cargo.toml
+  - scripts/check-ui-command-arguments.test.mjs
+  - src-tauri/src/core/config_profile_inventory.rs
+  - package.json
+  - README.md
+  - scripts/frontend-argument-surface.mjs
 -->

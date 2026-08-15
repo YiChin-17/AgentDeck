@@ -298,7 +298,15 @@ Management change 的已完成邊界：
 
 ### Phase 7：穩定化與個人安裝
 
-目前狀態（2026-08-15）：規劃中。下一個 change 固定為 `stabilize-personal-installation`，只處理個人安裝前的 regression 修補、macOS 本機 bundle 產出／smoke verification，以及安裝、資料備份與解除安裝文件；不建立公開更新或發佈信任鏈。
+目前狀態（2026-08-15）：`stabilize-personal-installation` 已實作完成，等待 archive。此 change 只處理個人安裝前的 regression 修補、macOS 本機 bundle 產出／smoke verification，以及安裝、資料備份與解除安裝文件；不建立公開更新或發佈信任鏈。
+
+本輪實際驗收結果（commit `38f6c07`，macOS 15.7.9 arm64）：
+
+- 鎖定依賴 suites：`npm ci`、`npm run build`、`npm run lint`、`npm run check:i18n` 與 11 個 repository contract scripts 全部 exit 0；Node test files 共 119 pass／0 fail；`cargo test --locked` 894 pass／0 fail（與 Phase 6 基準相同）。
+- Production audits：`npm audit --omit=dev` 與 `cargo audit` 皆 exit 0、0 個 active vulnerability；cargo audit 另有 26 個 allowed warnings（17 unmaintained、8 unsound、1 yanked），需 breaking upgrade 才能處理，因此不在此 change 動 dependency graph。
+- Packaged artifacts：`npm run tauri:build` exit 0，產出 `AgentDeck.app` 與 `AgentDeck_1.30.0_aarch64.dmg`；新增的 `npm run check:personal-installation` 驗證 Bundle ID、名稱、版本、executable、installer、文件與 updater 缺席後 exit 0。
+- 修掉三個實際定位的 regression：Config Profile 隔離測試引入的 parallel `agentdeck.db` 命名，以及 Hook／Plugin 前端授權檢查因掃描到檔尾而誤判 Config Profile 型別的兩個 false positive。
+- Packaged smoke：以隔離 home／Library／registered Project／fake CLI 完成主要頁面、既有 Library 重用、external Library Offline 與 Retry、Skill copy deployment／conflict／cancel／confirmed write-back、Plugin preview／cancel、Hook 與 Config Profile 的 preview／cancel／stale conflict／confirmed apply／byte-exact restore。合格 run 對所有 filesystem assertion 使用隔離 root 前綴 guard；較早發生隔離缺口的嘗試已作廢且不採計，限制與處置記於 `docs/personal-installation-verification.md`。
 
 - 完成 migration、同步、衝突、offline、CLI adapter 測試。
 - 測試真實 Codex 與 Claude 專案。

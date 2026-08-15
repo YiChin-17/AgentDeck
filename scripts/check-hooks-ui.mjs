@@ -8,6 +8,7 @@
 // only the Node standard library.
 import fs from 'node:fs';
 import path from 'node:path';
+import { wrapperArgumentSurface } from './frontend-argument-surface.mjs';
 
 const root = process.cwd();
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
@@ -65,10 +66,18 @@ for (const [wrapper, command] of WRITE_COMMANDS) {
   );
 }
 // Only the Hook wrappers are in scope here; unrelated Skill commands do take
-// paths the user picked themselves.
-const hookApi = api.slice(api.indexOf('export const previewHookChange'));
+// paths the user picked themselves, and so do declarations that merely happen
+// to sit after the Hook block in the same file.
+const hookSurface = wrapperArgumentSurface(api, [
+  'getHookInspection',
+  ...WRITE_COMMANDS.map(([wrapper]) => wrapper),
+]);
 require(
-  hookApi.length > 0 && !/Path\b/.test(hookApi),
+  hookSurface.missing.length === 0,
+  `tauri.ts must declare every Hook wrapper (missing: ${hookSurface.missing.join(', ')})`
+);
+require(
+  !/Path\b/.test(hookSurface.surface),
   'no Hook command may take a filesystem path from the frontend'
 );
 

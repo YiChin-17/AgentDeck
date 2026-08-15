@@ -1801,7 +1801,7 @@ mod tests {
         // Stand-ins for the Library, the SQLite database and Application Support
         // state: this capability is given no handle to any of them.
         write(&state.path().join("Library").join("skills").join("demo.md"), "# demo\n");
-        write(&state.path().join("agentdeck.db"), "sqlite-bytes");
+        write(&state.path().join("skills-manager.db"), "sqlite-bytes");
         write(&state.path().join("Application Support").join("settings.json"), "{}");
 
         let before: Vec<_> =

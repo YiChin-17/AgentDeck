@@ -108,6 +108,24 @@ test("upstream provenance remains separate from runtime update trust", () => {
   assert.doesNotMatch(readme, /In-app updates|installs it for you on macOS and Windows/);
 });
 
+test("the personal installation guide claims no upstream release trust", () => {
+  const readme = read("README.md");
+
+  // The bundle a reader builds here is unsigned and unnotarized. Describing it
+  // with upstream release language would transfer a trust chain this project
+  // does not have, and telling the reader to strip quarantine attributes or
+  // turn off Gatekeeper would ask them to pay for that gap with their own
+  // system security.
+  assert.doesNotMatch(readme, /signed with an Apple Developer ID/);
+  assert.doesNotMatch(readme, /notarized by Apple/);
+  assert.doesNotMatch(readme, /xattr -cr/);
+  assert.doesNotMatch(readme, /spctl --master-disable/);
+
+  assert.match(readme, /personal local build|personal installation/i);
+  assert.match(readme, /no application auto-update/i);
+  assert.match(readme, /no notarization guarantee/i);
+});
+
 test("Phase 7 documents personal installation without app auto-update", () => {
   const plan = read("plan.md");
   const phase7 = plan.match(/### Phase 7：[\s\S]*?(?=\n## )/)?.[0] ?? "";

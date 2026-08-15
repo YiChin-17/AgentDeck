@@ -32,7 +32,10 @@ dist-ssr
 *.sw?
 
 .claude
-docs
+# The whole directory is local scratch, except the committed Phase 7
+# personal-installation evidence.
+docs/*
+!docs/personal-installation-verification.md
 reference
 CLAUDE.md
 .loop-log
