@@ -82,33 +82,21 @@ for (const forbidden of ['path', 'Path', 'cwd', 'env', 'home', 'root', 'raw', 'f
   );
 }
 
-// ── No mutation surface anywhere ──
-for (const wrapper of [
-  'createConfigProfile',
-  'updateConfigProfile',
-  'deleteConfigProfile',
-  'assignConfigProfile',
-  'applyConfigProfile',
-  'backupConfigProfile',
-  'restoreConfigProfile',
-  'writeConfigProfile',
-]) {
-  require(!api.includes(wrapper), `tauri.ts must not expose ${wrapper}`);
-  require(!view.includes(wrapper), `the Config Profiles page must not offer ${wrapper}`);
-}
+// ── Inspection itself still has no side effect ──
+//
+// The page now also hosts a preview-first management workflow, so the blanket
+// ban on mutation wrappers moved to `check-config-profile-management.mjs`.
+// What stays here is the part that was never about management: the inventory
+// request reads, and the view reaches IPC only through typed wrappers.
 for (const call of ['invoke(', 'Command(', 'writeTextFile', 'removeFile', 'shell']) {
   require(!view.includes(call), `the ConfigProfiles view must not call ${call}`);
 }
-for (const label of [
-  'configProfiles.create',
-  'configProfiles.edit',
-  'configProfiles.assign',
-  'configProfiles.apply',
-  'configProfiles.backup',
-  'configProfiles.restore',
-]) {
-  require(!view.includes(label), `the Config Profiles page must not render ${label}`);
-}
+// The read path is one command. A second read wrapper would be a second
+// authority over which files get opened.
+require(
+  (api.match(/get_config_profile_inventory/g) || []).length === 1,
+  'the inventory must be reachable through exactly one command'
+);
 
 // ── The three filters, refresh and the runtime limitation ──
 for (const key of ['agent', 'scope', 'project']) {

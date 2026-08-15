@@ -1375,7 +1375,7 @@
   "configProfiles": {
     "title": "Config Profiles",
     "subtitle": "唯讀檢視 Codex 與 Claude Code 的固定設定來源，不會修改任何檔案。",
-    "readOnlyBadge": "唯讀檢視",
+    "readOnlyBadge": "檢視為唯讀；管理只有在你確認後才會寫入",
     "runtimeLimitation": "此頁只解析下方列出的固定來源。CLI 參數、環境變數、managed policy、專案信任狀態，以及未掃描的來源，都可能改變工作階段實際採用的值。",
     "loadFailed": "無法讀取設定來源。",
     "projectNotFound": "AgentDeck 已不再登錄這個專案。",
@@ -1440,6 +1440,63 @@
       "status": "狀態",
       "path": "路徑",
       "fingerprint": "指紋"
+    },
+    "manage": {
+      "heading": "設定檔管理",
+      "subtitle": "把一組允許清單內的設定存成可重複使用的設定檔，確認實際變更後再套用到已登錄的專案。",
+      "newProfile": "新增設定檔",
+      "profileName": "設定檔名稱",
+      "save": "儲存設定檔",
+      "delete": "刪除設定檔",
+      "deleteConfirm": "要刪除這個設定檔嗎？它目前沒有任何指派，也沒有還原點。",
+      "revision": "版次 {{revision}}",
+      "noProfiles": "尚未建立任何設定檔。建立一個就能把同一組設定重複套用到不同專案。",
+      "entriesHeading": "這個設定檔會套用的設定",
+      "unset": "不納入這個設定檔",
+      "assignHeading": "指派",
+      "assign": "指派",
+      "unassign": "移除指派",
+      "noAssignments": "這個設定檔尚未指派給任何專案。",
+      "applyAction": "預覽套用",
+      "restoreAction": "預覽還原",
+      "previewHeading": "寫入前請先確認",
+      "previewApply": "把 {{profile}} 套用到 {{project}}",
+      "previewRestore": "還原 {{project}} 的前一個狀態",
+      "confirm": "確認並寫入",
+      "wouldCreateFile": "這會建立目前還不存在的設定檔案。",
+      "wouldRemoveFile": "這會移除 AgentDeck 先前建立的設定檔案。",
+      "noChanges": "這個設定檔不會改變目前來源的任何值。",
+      "applied": "已套用。",
+      "restored": "已還原。",
+      "lastApplied": "上次套用於 {{when}}",
+      "neverApplied": "尚未套用",
+      "hasRecovery": "可以還原一步",
+      "column": {
+        "before": "目前",
+        "after": "之後"
+      },
+      "status": {
+        "pending": "尚未套用",
+        "clean": "已套用",
+        "failed": "上次套用失敗"
+      }
+    },
+    "error": {
+      "profile_not_found": "這個設定檔已經不存在。",
+      "project_not_found": "這個專案沒有登錄在 AgentDeck。",
+      "invalid_profile_entry": "其中一項設定不在允許清單內，或型別不符。",
+      "stale_profile": "你編輯的期間設定檔已被更動。請重新載入後再試。",
+      "profile_in_use": "這個設定檔仍有指派或仍保有還原點。",
+      "library_offline": "Library 離線，沒有做任何變更。檢視功能仍可使用。",
+      "source_invalid": "設定檔案無法解析成有效文件，內容保持原樣未被更動。",
+      "unsupported_symlink": "設定檔案是符號連結，AgentDeck 不會透過它寫入。",
+      "too_large": "設定檔案超過 1 MiB，未被讀取。",
+      "stale_preview": "設定檔或檔案在預覽之後有變動，請重新檢視。",
+      "preview_expired": "這份預覽已逾時，請重新檢視。",
+      "write_failed": "寫入失敗，檔案完全保持原狀。",
+      "atomic_replace_unsupported": "這個系統無法安全地取代檔案，因此沒有寫入任何內容。",
+      "rollback_failed": "寫入失敗且無法還原檔案，請用還原功能恢復。",
+      "recovery_not_found": "沒有可還原的還原點。"
     }
   }
 }

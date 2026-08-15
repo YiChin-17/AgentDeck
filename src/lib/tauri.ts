@@ -1308,3 +1308,158 @@ export interface ConfigProfileInventory {
 /** Reads the fixed Codex and Claude Code sources. Nothing here writes. */
 export const getConfigProfileInventory = (request: ConfigInventoryRequest) =>
   invoke<ConfigProfileInventory>("get_config_profile_inventory", { request });
+
+// ── Config Profile management ──
+//
+// Every request below carries opaque ids and typed allowlisted scalars. None of
+// them can name a file, a scope or a document: the backend composes the target
+// from the registered Project record and the Agent, and refuses anything else.
+
+/** The scalar type of one writable key, before the user has typed a value. */
+export type ConfigValueKindKey = "string" | "boolean" | "integer";
+
+/** One key a profile may carry, as the editor renders it. */
+export interface ConfigProfileKey {
+  agent: ConfigAgentKey;
+  canonicalKey: string;
+  valueKind: ConfigValueKindKey;
+}
+
+/** One allowlisted setting a profile carries for one Agent. */
+export interface ConfigProfileEntryInput {
+  agent: ConfigAgentKey;
+  canonicalKey: string;
+  value: ConfigValue;
+}
+
+export interface ConfigProfile {
+  id: string;
+  name: string;
+  revision: number;
+  entries: ConfigProfileEntryInput[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateConfigProfileRequest {
+  name: string;
+  entries: ConfigProfileEntryInput[];
+}
+
+export interface UpdateConfigProfileRequest {
+  profileId: string;
+  /** The revision the editor was opened on. A newer one is a conflict. */
+  expectedRevision: number;
+  name: string;
+  entries: ConfigProfileEntryInput[];
+}
+
+export interface ConfigProfileAssignmentRequest {
+  profileId: string;
+  projectId: string;
+  agent: ConfigAgentKey;
+}
+
+export interface ConfigProfileAssignment {
+  profileId: string;
+  projectId: string;
+  agent: ConfigAgentKey;
+  /** The fixed source this assignment writes. Displayed, never composed. */
+  sourceId: string;
+  status: string;
+  lastAppliedFingerprint: string | null;
+  lastAppliedAt: number | null;
+  hasRecoveryPoint: boolean;
+}
+
+export type ConfigProfilePreviewOperation = "apply" | "restore";
+
+/** One allowlisted setting as it changes between the source and the result. */
+export interface ConfigProfileDiffEntry {
+  agent: ConfigAgentKey;
+  canonicalKey: string;
+  status: ConfigDiffStatusKey;
+  before: ConfigValue | null;
+  after: ConfigValue | null;
+}
+
+/** What the user confirms. Carries no path, raw document or backup bytes. */
+export interface ConfigProfilePreview {
+  token: string;
+  operation: ConfigProfilePreviewOperation;
+  profileId: string;
+  profileName: string;
+  profileRevision: number;
+  projectId: string;
+  agent: ConfigAgentKey;
+  sourceId: string;
+  /** Null when the target does not exist yet. */
+  baseFingerprint: string | null;
+  wouldCreateFile: boolean;
+  wouldRemoveFile: boolean;
+  diff: ConfigProfileDiffEntry[];
+  expiresAt: number;
+}
+
+export interface ConfigProfilePreviewRequest {
+  profileId: string;
+  projectId: string;
+  agent: ConfigAgentKey;
+}
+
+/**
+ * The whole apply and restore request.
+ *
+ * Confirm sends the token and nothing else: every input the write depends on is
+ * re-derived from what the preview bound, so the frontend cannot widen it.
+ */
+export interface ConfigProfileApplyRequest {
+  token: string;
+}
+
+export interface ConfigProfileApplyOutcome {
+  profileId: string;
+  projectId: string;
+  agent: ConfigAgentKey;
+  fingerprint: string;
+  createdFile: boolean;
+}
+
+export const listConfigProfiles = () => invoke<ConfigProfile[]>("list_config_profiles");
+
+/** The keys the editor may offer. The allowlist lives in the backend. */
+export const listConfigProfileKeys = () =>
+  invoke<ConfigProfileKey[]>("list_config_profile_keys");
+
+export const createConfigProfile = (request: CreateConfigProfileRequest) =>
+  invoke<ConfigProfile>("create_config_profile", { request });
+
+export const updateConfigProfile = (request: UpdateConfigProfileRequest) =>
+  invoke<ConfigProfile>("update_config_profile", { request });
+
+export const deleteConfigProfile = (profileId: string) =>
+  invoke<void>("delete_config_profile", { request: { profileId } });
+
+export const listConfigProfileAssignments = (profileId?: string | null) =>
+  invoke<ConfigProfileAssignment[]>("list_config_profile_assignments", {
+    profileId: profileId ?? null,
+  });
+
+export const setConfigProfileAssignment = (request: ConfigProfileAssignmentRequest) =>
+  invoke<ConfigProfileAssignment>("set_config_profile_assignment", { request });
+
+export const removeConfigProfileAssignment = (request: ConfigProfileAssignmentRequest) =>
+  invoke<void>("remove_config_profile_assignment", { request });
+
+/** Produces the diff to confirm. Creates no file and no database row. */
+export const previewConfigProfileApply = (request: ConfigProfilePreviewRequest) =>
+  invoke<ConfigProfilePreview>("preview_config_profile_apply", { request });
+
+export const applyConfigProfile = (request: ConfigProfileApplyRequest) =>
+  invoke<ConfigProfileApplyOutcome>("apply_config_profile", { request });
+
+export const previewConfigProfileRestore = (request: ConfigProfilePreviewRequest) =>
+  invoke<ConfigProfilePreview>("preview_config_profile_restore", { request });
+
+export const applyConfigProfileRestore = (request: ConfigProfileApplyRequest) =>
+  invoke<ConfigProfileApplyOutcome>("apply_config_profile_restore", { request });

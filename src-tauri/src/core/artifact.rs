@@ -166,11 +166,15 @@ impl HookBackupKind {
 ///
 /// `CliManaged` covers Agents whose own CLI owns the on-disk layout, so
 /// AgentDeck records the deployment without writing the target itself.
+/// `ConfigProfile` covers the managed write of allowlisted settings into a
+/// fixed Project source: the target is derived from the Project record and the
+/// Agent on every use, so the deployment row carries no path of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeploymentMode {
     Symlink,
     Copy,
     CliManaged,
+    ConfigProfile,
 }
 
 impl DeploymentMode {
@@ -179,6 +183,7 @@ impl DeploymentMode {
             DeploymentMode::Symlink => "symlink",
             DeploymentMode::Copy => "copy",
             DeploymentMode::CliManaged => "cli-managed",
+            DeploymentMode::ConfigProfile => "config-profile",
         }
     }
 
@@ -187,8 +192,12 @@ impl DeploymentMode {
             "symlink" => Ok(DeploymentMode::Symlink),
             "copy" => Ok(DeploymentMode::Copy),
             "cli-managed" => Ok(DeploymentMode::CliManaged),
+            "config-profile" => Ok(DeploymentMode::ConfigProfile),
             other => {
-                bail!("unknown deployment mode: {other:?} (expected symlink, copy or cli-managed)")
+                bail!(
+                    "unknown deployment mode: {other:?} \
+                     (expected symlink, copy, cli-managed or config-profile)"
+                )
             }
         }
     }
@@ -395,6 +404,7 @@ mod scope_and_mode_tests {
         assert_eq!(DeploymentMode::Symlink.as_str(), "symlink");
         assert_eq!(DeploymentMode::Copy.as_str(), "copy");
         assert_eq!(DeploymentMode::CliManaged.as_str(), "cli-managed");
+        assert_eq!(DeploymentMode::ConfigProfile.as_str(), "config-profile");
     }
 
     #[test]
@@ -403,6 +413,7 @@ mod scope_and_mode_tests {
             DeploymentMode::Symlink,
             DeploymentMode::Copy,
             DeploymentMode::CliManaged,
+            DeploymentMode::ConfigProfile,
         ] {
             assert_eq!(DeploymentMode::parse(mode.as_str()).unwrap(), mode);
         }

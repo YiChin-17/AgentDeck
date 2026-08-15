@@ -8,6 +8,7 @@ use super::artifact::{
     ArtifactDeploymentRecord, ArtifactKind, ArtifactRecord, ArtifactScope, DeploymentMode,
     HookBackupKind, HookContext,
 };
+use super::config_profile_inventory::{ConfigAgent, ConfigValueDto};
 use super::audit_log::{AuditDraft, AuditEntry, MAX_ENTRIES as AUDIT_MAX_ENTRIES};
 use super::crypto;
 use super::log_sanitize;
@@ -54,6 +55,54 @@ pub struct HookBackupRecord {
     pub locator: String,
     pub created_at: i64,
     pub restored_at: Option<i64>,
+}
+
+/// One saved Config Profile: identity, name, revision and its complete entry
+/// set.
+///
+/// The entry set is carried whole rather than patched, because "the settings
+/// this profile applies" is exactly what the user edits and confirms.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfigProfileRecord {
+    pub artifact_id: String,
+    pub name: String,
+    pub revision: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub entries: Vec<ConfigProfileEntryRecord>,
+}
+
+/// One allowlisted setting a profile carries for one Agent.
+///
+/// There is no room here for a document, a path or a nested value: the schema
+/// stores exactly one scalar per row and this shape mirrors it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfigProfileEntryRecord {
+    pub agent: ConfigAgent,
+    pub canonical_key: String,
+    pub value: ConfigValueDto,
+}
+
+/// The single active recovery point of one profile, Project and Agent
+/// assignment.
+///
+/// `locator` is relative to the private recovery root, and the hashes identify
+/// states without reproducing them: nothing here can rebuild a config document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigProfileRecoveryRecord {
+    pub id: String,
+    pub artifact_id: String,
+    pub project_id: String,
+    pub agent: ConfigAgent,
+    pub source_id: String,
+    pub kind: HookBackupKind,
+    /// Revision of the source this recovery point holds.
+    pub before_hash: String,
+    /// Revision the apply produced, used to tell whether restore is still safe.
+    pub after_hash: String,
+    pub locator: String,
+    pub revision: i64,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -416,6 +465,168 @@ impl SkillStore {
                 restored_at: row.get(7)?,
             })),
         }
+    }
+
+    // ── Config Profile typed persistence ──
+
+    pub fn list_config_profiles(&self) -> Result<Vec<ConfigProfileRecord>> {
+        let conn = self.conn.lock().unwrap();
+        read_config_profiles(&conn, None)
+    }
+
+    pub fn get_config_profile(&self, artifact_id: &str) -> Result<Option<ConfigProfileRecord>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(read_config_profiles(&conn, Some(artifact_id))?.pop())
+    }
+
+    /// Creates the Artifact identity, the detail row and the complete entry set
+    /// in one transaction.
+    ///
+    /// A profile whose identity commits without its entries would be an empty
+    /// profile the user believes they filled in, so nothing lands unless all of
+    /// it does.
+    pub fn create_config_profile(&self, profile: &ConfigProfileRecord) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO artifacts (id, kind) VALUES (?1, ?2)",
+            params![profile.artifact_id, ArtifactKind::ConfigProfile.as_str()],
+        )?;
+        tx.execute(
+            "INSERT INTO config_profile_details
+                (artifact_id, name, revision, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                profile.artifact_id,
+                profile.name,
+                profile.revision,
+                profile.created_at,
+                profile.updated_at,
+            ],
+        )?;
+        write_config_profile_entries(&tx, &profile.artifact_id, &profile.entries)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Replaces the name and the complete entry set, guarded by the revision the
+    /// editor was opened against.
+    ///
+    /// Returns `false` when the stored revision has moved on, having changed
+    /// nothing: two editors open on one profile must not silently overwrite each
+    /// other's entry set.
+    pub fn update_config_profile(
+        &self,
+        profile: &ConfigProfileRecord,
+        expected_revision: i64,
+    ) -> Result<bool> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let updated = tx.execute(
+            "UPDATE config_profile_details
+                SET name = ?2, revision = ?3, updated_at = ?4
+              WHERE artifact_id = ?1 AND revision = ?5",
+            params![
+                profile.artifact_id,
+                profile.name,
+                profile.revision,
+                profile.updated_at,
+                expected_revision,
+            ],
+        )?;
+        if updated == 0 {
+            // Nothing was written, so the rollback is only about releasing the
+            // transaction — the caller distinguishes "gone" from "stale".
+            tx.rollback()?;
+            return Ok(false);
+        }
+        tx.execute(
+            "DELETE FROM config_profile_entries WHERE artifact_id = ?1",
+            params![profile.artifact_id],
+        )?;
+        write_config_profile_entries(&tx, &profile.artifact_id, &profile.entries)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Deletes the profile Artifact, taking its detail and entries with it
+    /// through the schema's cascade.
+    pub fn delete_config_profile(&self, artifact_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM artifacts WHERE id = ?1 AND kind = ?2",
+            params![artifact_id, ArtifactKind::ConfigProfile.as_str()],
+        )?;
+        Ok(())
+    }
+
+    /// How much state would be orphaned by deleting this profile.
+    ///
+    /// Deletion is refused rather than cascaded: an assignment names a Project
+    /// whose config this profile may already have written, and a recovery point
+    /// is the only way back from that write.
+    pub fn count_config_profile_dependents(&self, artifact_id: &str) -> Result<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let deployments: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM artifact_deployments WHERE artifact_id = ?1",
+            params![artifact_id],
+            |row| row.get(0),
+        )?;
+        let recoveries: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM config_profile_recoveries WHERE artifact_id = ?1",
+            params![artifact_id],
+            |row| row.get(0),
+        )?;
+        Ok((deployments, recoveries))
+    }
+
+    /// Replaces the single active recovery point of one assignment.
+    ///
+    /// A profile, Project and Agent has exactly one way back, so a new recovery
+    /// point supersedes the old row rather than accumulating history.
+    pub fn upsert_config_profile_recovery(
+        &self,
+        recovery: &ConfigProfileRecoveryRecord,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        write_config_profile_recovery(&conn, recovery)
+    }
+
+    pub fn get_config_profile_recovery(
+        &self,
+        artifact_id: &str,
+        project_id: &str,
+        agent: ConfigAgent,
+    ) -> Result<Option<ConfigProfileRecoveryRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!(
+            "{CONFIG_PROFILE_RECOVERY_COLUMNS}
+             FROM config_profile_recoveries
+             WHERE artifact_id = ?1 AND project_id = ?2 AND agent = ?3"
+        ))?;
+        let mut rows = stmt.query_map(
+            params![artifact_id, project_id, agent.as_str()],
+            map_config_profile_recovery_row,
+        )?;
+        match rows.next() {
+            None => Ok(None),
+            Some(row) => Ok(Some(row??)),
+        }
+    }
+
+    pub fn delete_config_profile_recovery(
+        &self,
+        artifact_id: &str,
+        project_id: &str,
+        agent: ConfigAgent,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM config_profile_recoveries
+             WHERE artifact_id = ?1 AND project_id = ?2 AND agent = ?3",
+            params![artifact_id, project_id, agent.as_str()],
+        )?;
+        Ok(())
     }
 
     // ── Deployments ──
@@ -2331,6 +2542,181 @@ const GLOBAL_TARGET_COLUMNS: &str = "SELECT id, artifact_id, agent, target_path,
             last_synced_at, last_error, last_synced_hash
      FROM artifact_deployments
      WHERE scope_type = 'global' AND enabled = 1";
+
+/// Reads whole profiles, optionally narrowed to one id.
+///
+/// Entries are fetched in a second pass and grouped in memory rather than
+/// joined, so a profile with no entries still comes back as a profile.
+fn read_config_profiles(
+    conn: &Connection,
+    artifact_id: Option<&str>,
+) -> Result<Vec<ConfigProfileRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT artifact_id, name, revision, created_at, updated_at
+         FROM config_profile_details
+         WHERE (?1 IS NULL OR artifact_id = ?1)
+         ORDER BY name",
+    )?;
+    let mut profiles: Vec<ConfigProfileRecord> = stmt
+        .query_map(params![artifact_id], |row| {
+            Ok(ConfigProfileRecord {
+                artifact_id: row.get(0)?,
+                name: row.get(1)?,
+                revision: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+                entries: Vec::new(),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut stmt = conn.prepare(
+        "SELECT artifact_id, agent, canonical_key, value_type,
+                string_value, boolean_value, integer_value
+         FROM config_profile_entries
+         WHERE (?1 IS NULL OR artifact_id = ?1)
+         ORDER BY agent, canonical_key",
+    )?;
+    let entries = stmt
+        .query_map(params![artifact_id], |row| {
+            Ok((row.get::<_, String>(0)?, map_config_profile_entry(row)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    for (owner, entry) in entries {
+        let entry = entry.ok_or_else(|| {
+            anyhow::anyhow!("config profile entry row does not match the typed vocabulary")
+        })?;
+        if let Some(profile) = profiles.iter_mut().find(|p| p.artifact_id == owner) {
+            profile.entries.push(entry);
+        }
+    }
+    Ok(profiles)
+}
+
+/// Maps one entry row, or `None` when the row is outside the typed vocabulary.
+///
+/// The schema CHECK already forbids these rows; `None` covers a database
+/// written by a future version, which must fail loudly rather than be coerced
+/// into a scalar it is not.
+fn map_config_profile_entry(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Option<ConfigProfileEntryRecord>> {
+    let Some(agent) = ConfigAgent::parse(&row.get::<_, String>(1)?) else {
+        return Ok(None);
+    };
+    let canonical_key: String = row.get(2)?;
+    let value = match row.get::<_, String>(3)?.as_str() {
+        "string" => row.get::<_, Option<String>>(4)?.map(ConfigValueDto::String),
+        "boolean" => row
+            .get::<_, Option<i64>>(5)?
+            .map(|value| ConfigValueDto::Boolean(value != 0)),
+        "integer" => row.get::<_, Option<i64>>(6)?.map(ConfigValueDto::Integer),
+        _ => None,
+    };
+    Ok(value.map(|value| ConfigProfileEntryRecord {
+        agent,
+        canonical_key,
+        value,
+    }))
+}
+
+/// Writes the complete entry set of one profile.
+///
+/// The caller has already cleared the previous set inside the same
+/// transaction, so this is an insert rather than an upsert: an entry the user
+/// removed must not survive as a leftover row.
+fn write_config_profile_entries(
+    conn: &Connection,
+    artifact_id: &str,
+    entries: &[ConfigProfileEntryRecord],
+) -> Result<()> {
+    for entry in entries {
+        let (value_type, string_value, boolean_value, integer_value) = match &entry.value {
+            ConfigValueDto::String(value) => ("string", Some(value.clone()), None, None),
+            ConfigValueDto::Boolean(value) => ("boolean", None, Some(i64::from(*value)), None),
+            ConfigValueDto::Integer(value) => ("integer", None, None, Some(*value)),
+        };
+        conn.execute(
+            "INSERT INTO config_profile_entries
+                (id, artifact_id, agent, canonical_key, value_type,
+                 string_value, boolean_value, integer_value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                artifact_id,
+                entry.agent.as_str(),
+                entry.canonical_key,
+                value_type,
+                string_value,
+                boolean_value,
+                integer_value,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+const CONFIG_PROFILE_RECOVERY_COLUMNS: &str = "SELECT id, artifact_id, project_id, agent, source_id,
+            kind, before_hash, after_hash, locator, revision, created_at";
+
+fn write_config_profile_recovery(
+    conn: &Connection,
+    recovery: &ConfigProfileRecoveryRecord,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO config_profile_recoveries
+            (id, artifact_id, project_id, agent, source_id, kind, before_hash, after_hash,
+             locator, revision, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         ON CONFLICT(artifact_id, project_id, agent) DO UPDATE SET
+            id = excluded.id,
+            source_id = excluded.source_id,
+            kind = excluded.kind,
+            before_hash = excluded.before_hash,
+            after_hash = excluded.after_hash,
+            locator = excluded.locator,
+            revision = excluded.revision,
+            created_at = excluded.created_at",
+        params![
+            recovery.id,
+            recovery.artifact_id,
+            recovery.project_id,
+            recovery.agent.as_str(),
+            recovery.source_id,
+            recovery.kind.as_str(),
+            recovery.before_hash,
+            recovery.after_hash,
+            recovery.locator,
+            recovery.revision,
+            recovery.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn map_config_profile_recovery_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<ConfigProfileRecoveryRecord>> {
+    let agent: String = row.get(3)?;
+    let kind: String = row.get(5)?;
+    Ok((|| {
+        Ok(ConfigProfileRecoveryRecord {
+            id: row.get(0)?,
+            artifact_id: row.get(1)?,
+            project_id: row.get(2)?,
+            agent: ConfigAgent::parse(&agent)
+                .ok_or_else(|| anyhow::anyhow!("unknown config profile recovery agent"))?,
+            source_id: row.get(4)?,
+            kind: HookBackupKind::parse(&kind)?,
+            before_hash: row.get(6)?,
+            after_hash: row.get(7)?,
+            locator: row.get(8)?,
+            revision: row.get(9)?,
+            created_at: row.get(10)?,
+        })
+    })())
+}
 
 /// Ensure a kind `skill` Artifact identity exists for `id`.
 ///

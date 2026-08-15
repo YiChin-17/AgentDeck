@@ -271,66 +271,6 @@ code:
 -->
 
 ---
-### Requirement: Config Profiles page is inspection-only
-
-AgentDeck SHALL provide a Config Profiles page with Agent, scope, and registered-project filters, refresh, source statuses, typed diagnostics, normalized settings, source resolution, and allowlisted diff. The page MUST NOT render create, edit, assign, apply, backup, restore, or secret-storage controls.
-
-#### Scenario: User inspects a valid registered project
-
-- **WHEN** the user opens Config Profiles and selects a registered project
-- **THEN** the page displays available fixed sources and allowlisted settings for the selected filters
-- **AND** identifies each setting's Agent, scope, source, and observed resolution
-
-##### Example: Selected Claude project
-
-- **GIVEN** project `Demo` has user model `sonnet` and local model `opus`
-- **WHEN** the user selects `Demo`, Claude Code, and all scopes
-- **THEN** both values are visible and `opus` is marked `observed_active`
-
-#### Scenario: Source failure has a specific empty state
-
-- **WHEN** a selected source is missing or has a failure status
-- **THEN** the page distinguishes that status from an inventory with no allowlisted settings
-- **AND** valid sources remain inspectable
-
-##### Example: Invalid project beside valid user source
-
-- **GIVEN** the user source is valid and the project source has status `invalid_format`
-- **WHEN** the page renders
-- **THEN** the user settings remain visible and the project source shows an invalid-format state rather than an empty inventory state
-
-#### Scenario: Runtime limitation is visible
-
-- **WHEN** the page displays supported-source resolution
-- **THEN** it also displays that CLI flags, environment, managed policy, project trust, and unscanned sources are outside the resolution
-
-##### Example: Codex project candidate
-
-- **GIVEN** a Codex project source contains `sandbox_mode = "read-only"`
-- **WHEN** the page displays that value
-- **THEN** it labels the value `project_candidate` and displays the runtime-limitation notice
-
-
-<!-- @trace
-source: inspect-codex-claude-config-profiles
-updated: 2026-08-15
-code:
-  - src-tauri/src/lib.rs
-  - src/i18n/en.json
-  - src/lib/tauri.ts
-  - src/i18n/zh-TW.json
-  - src/App.tsx
-  - src/views/ConfigProfiles.tsx
-  - package.json
-  - src-tauri/src/core/config_profile_inventory.rs
-  - scripts/check-config-profiles-ui.mjs
-  - src/components/Sidebar.tsx
-  - src-tauri/src/core/mod.rs
-  - src-tauri/src/commands/mod.rs
-  - src-tauri/src/commands/config_profile_inventory.rs
--->
-
----
 ### Requirement: Inspection produces no persistent side effects
 
 Config Profile inspection MUST NOT write, repair, format, rename, or delete a source file. It MUST NOT write the Library, SQLite database, Application Support state, logs, Git backup metadata, or system secret storage, and MUST NOT trigger Library synchronization or deletion.
@@ -370,4 +310,73 @@ code:
   - src-tauri/src/core/mod.rs
   - src-tauri/src/commands/mod.rs
   - src-tauri/src/commands/config_profile_inventory.rs
+-->
+
+---
+### Requirement: Config Profiles page separates inspection and management
+
+AgentDeck SHALL preserve Agent, scope, and registered-Project inventory filters, refresh, source statuses, typed diagnostics, normalized settings, source resolution, and allowlisted diff on the Config Profiles page. The page SHALL present Config Profile management as an explicitly separate preview-first workflow and MUST NOT let management state change the authority, source set, or no-side-effect behavior of inventory requests.
+
+#### Scenario: User inspects a valid registered Project
+
+- **WHEN** the user opens Config Profiles and selects a registered Project
+- **THEN** the inspection area displays available fixed sources and allowlisted settings for the selected filters
+- **AND** identifies each setting's Agent, scope, source, and observed resolution
+
+##### Example: Selected Claude Project
+
+- **GIVEN** Project `Demo` has user model `sonnet` and local model `opus`
+- **WHEN** the user selects `Demo`, Claude Code, and all scopes
+- **THEN** both values are visible and `opus` is marked `observed_active`
+
+#### Scenario: Source failure has a specific empty state
+
+- **WHEN** a selected source is missing or has a failure status
+- **THEN** the inspection area distinguishes that status from an inventory with no allowlisted settings
+- **AND** valid sources remain inspectable
+
+##### Example: Invalid Project beside valid user source
+
+- **GIVEN** the user source is valid and the Project source has status `invalid_format`
+- **WHEN** the page renders
+- **THEN** the user settings remain visible and the Project source shows an invalid-format state rather than an empty inventory state
+
+#### Scenario: Runtime limitation remains visible
+
+- **WHEN** the inspection area displays supported-source resolution
+- **THEN** it also displays that CLI flags, environment, managed policy, Project trust, and unscanned sources are outside the resolution
+
+##### Example: Codex Project candidate
+
+- **GIVEN** a Codex Project source contains `sandbox_mode = "read-only"`
+- **WHEN** the inspection area displays that value
+- **THEN** it labels the value `project_candidate` and displays the runtime-limitation notice
+
+#### Scenario: Management selection does not mutate inspection
+
+- **WHEN** the user selects or edits a Config Profile without confirming apply or restore
+- **THEN** inventory requests continue to read only the fixed supported sources selected by the inventory filters
+- **AND** the source files, Library, SQLite, Application Support, Git metadata, and system secret storage remain unchanged except for an explicitly saved profile or assignment transaction
+
+<!-- @trace
+source: manage-codex-claude-config-profiles
+updated: 2026-08-15
+code:
+  - src/views/ConfigProfiles.tsx
+  - scripts/check-config-profile-management.mjs
+  - src/lib/tauri.ts
+  - scripts/check-config-profiles-ui.mjs
+  - src-tauri/src/commands/mod.rs
+  - src-tauri/src/core/migrations.rs
+  - src-tauri/src/core/config_profile_management.rs
+  - plan.md
+  - src-tauri/src/lib.rs
+  - src/i18n/zh-TW.json
+  - src-tauri/src/core/skill_store.rs
+  - src-tauri/src/commands/config_profile_management.rs
+  - package.json
+  - src-tauri/src/core/artifact.rs
+  - src-tauri/src/core/config_profile_inventory.rs
+  - src/i18n/en.json
+  - src-tauri/src/core/mod.rs
 -->

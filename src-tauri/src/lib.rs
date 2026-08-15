@@ -810,6 +810,10 @@ pub fn run() {
         // survive a restart cannot be applied after the state it described has
         // moved on.
         .manage(core::plugin_mutation::PluginMutationState::default())
+        // Outstanding Config Profile previews. Memory only, for the same
+        // reason: a token that survived a restart would authorize a write
+        // against a source nobody has looked at since.
+        .manage(Arc::new(commands::config_profile_management::ConfigProfileState::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             restore_main_window(app);
         }))
@@ -1079,6 +1083,18 @@ pub fn run() {
             commands::plugin_mutation::apply_plugin_mutation,
             // Config Profiles (read-only inspection)
             commands::config_profile_inventory::get_config_profile_inventory,
+            commands::config_profile_management::list_config_profiles,
+            commands::config_profile_management::list_config_profile_keys,
+            commands::config_profile_management::create_config_profile,
+            commands::config_profile_management::update_config_profile,
+            commands::config_profile_management::delete_config_profile,
+            commands::config_profile_management::list_config_profile_assignments,
+            commands::config_profile_management::set_config_profile_assignment,
+            commands::config_profile_management::remove_config_profile_assignment,
+            commands::config_profile_management::preview_config_profile_apply,
+            commands::config_profile_management::apply_config_profile,
+            commands::config_profile_management::preview_config_profile_restore,
+            commands::config_profile_management::apply_config_profile_restore,
             // Projects
             commands::projects::get_projects,
             commands::projects::add_project,

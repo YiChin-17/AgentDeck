@@ -1375,7 +1375,7 @@
   "configProfiles": {
     "title": "Config Profiles",
     "subtitle": "Read the fixed Codex and Claude Code configuration sources without changing them.",
-    "readOnlyBadge": "Read-only inspection",
+    "readOnlyBadge": "Inspection is read-only; management writes only after you confirm",
     "runtimeLimitation": "This view resolves only the fixed sources listed below. CLI flags, environment variables, managed policy, project trust and any source not scanned here can still change the value a session actually uses.",
     "loadFailed": "Could not read the configuration sources.",
     "projectNotFound": "That project is no longer registered in AgentDeck.",
@@ -1440,6 +1440,63 @@
       "status": "Status",
       "path": "Path",
       "fingerprint": "Fingerprint"
+    },
+    "manage": {
+      "heading": "Profile management",
+      "subtitle": "Save a reusable set of allowlisted settings and apply it to a registered Project after reviewing the exact change.",
+      "newProfile": "New profile",
+      "profileName": "Profile name",
+      "save": "Save profile",
+      "delete": "Delete profile",
+      "deleteConfirm": "Delete this profile? It has no assignment and no recovery point.",
+      "revision": "Revision {{revision}}",
+      "noProfiles": "No profiles yet. Create one to reuse a set of settings across Projects.",
+      "entriesHeading": "Settings this profile applies",
+      "unset": "Not in this profile",
+      "assignHeading": "Assignments",
+      "assign": "Assign",
+      "unassign": "Remove assignment",
+      "noAssignments": "This profile is not assigned to any Project yet.",
+      "applyAction": "Preview apply",
+      "restoreAction": "Preview restore",
+      "previewHeading": "Review before writing",
+      "previewApply": "Apply {{profile}} to {{project}}",
+      "previewRestore": "Restore the previous state of {{project}}",
+      "confirm": "Confirm and write",
+      "wouldCreateFile": "This creates the configuration file, which does not exist yet.",
+      "wouldRemoveFile": "This removes the configuration file AgentDeck created.",
+      "noChanges": "This profile changes nothing in the current source.",
+      "applied": "Applied.",
+      "restored": "Restored.",
+      "lastApplied": "Last applied {{when}}",
+      "neverApplied": "Never applied",
+      "hasRecovery": "One step of undo is available",
+      "column": {
+        "before": "Current",
+        "after": "After"
+      },
+      "status": {
+        "pending": "Not applied",
+        "clean": "Applied",
+        "failed": "Last apply failed"
+      }
+    },
+    "error": {
+      "profile_not_found": "That profile no longer exists.",
+      "project_not_found": "That Project is not registered in AgentDeck.",
+      "invalid_profile_entry": "One of the settings is not an allowed key or has the wrong type.",
+      "stale_profile": "The profile changed while you were editing it. Reload and try again.",
+      "profile_in_use": "This profile is still assigned or still has a recovery point.",
+      "library_offline": "The Library is offline, so nothing was changed. Inspection still works.",
+      "source_invalid": "The configuration file could not be read as a valid document. It was left untouched.",
+      "unsupported_symlink": "The configuration file is a symbolic link, which AgentDeck will not write through.",
+      "too_large": "The configuration file is larger than 1 MiB and was not read.",
+      "stale_preview": "The profile or the file changed since this preview. Review it again.",
+      "preview_expired": "This preview expired. Review it again.",
+      "write_failed": "The write failed and the file was left exactly as it was.",
+      "atomic_replace_unsupported": "This system cannot replace the file safely, so nothing was written.",
+      "rollback_failed": "The write failed and the file could not be put back. Use restore to recover it.",
+      "recovery_not_found": "There is no recovery point to restore."
     }
   }
 }

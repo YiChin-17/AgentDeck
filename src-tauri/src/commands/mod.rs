@@ -1,6 +1,7 @@
 pub mod agent_workspace;
 pub mod browse;
 pub mod config_profile_inventory;
+pub mod config_profile_management;
 pub mod git_backup;
 pub mod hooks;
 pub mod plugin_mutation;

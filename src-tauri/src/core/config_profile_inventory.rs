@@ -27,6 +27,25 @@ pub enum ConfigAgent {
     ClaudeCode,
 }
 
+impl ConfigAgent {
+    /// The persisted and IPC spelling. Kept in step with the serde rename so a
+    /// stored row and a serialized DTO can never disagree about an Agent.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConfigAgent::Codex => "codex",
+            ConfigAgent::ClaudeCode => "claude_code",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "codex" => Some(ConfigAgent::Codex),
+            "claude_code" => Some(ConfigAgent::ClaudeCode),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigScope {
@@ -105,12 +124,34 @@ pub enum ConfigDiffStatus {
 ///
 /// A generic JSON or TOML value would let an unknown table or array through, so
 /// the DTO can express nothing but these three scalars.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum ConfigValueDto {
     String(String),
     Boolean(bool),
     Integer(i64),
+}
+
+/// The scalar type of one allowlisted key, without a value attached.
+///
+/// Management needs to state "this key is an integer" before the user has typed
+/// anything, which a `ConfigValueDto` cannot express.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigValueKind {
+    String,
+    Boolean,
+    Integer,
+}
+
+impl ConfigValueDto {
+    pub fn kind(&self) -> ConfigValueKind {
+        match self {
+            ConfigValueDto::String(_) => ConfigValueKind::String,
+            ConfigValueDto::Boolean(_) => ConfigValueKind::Boolean,
+            ConfigValueDto::Integer(_) => ConfigValueKind::Integer,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +231,49 @@ fn allowlist(agent: ConfigAgent) -> &'static [AllowedKey] {
         ConfigAgent::Codex => CODEX_ALLOWLIST,
         ConfigAgent::ClaudeCode => CLAUDE_ALLOWLIST,
     }
+}
+
+impl AllowedType {
+    fn kind(self) -> ConfigValueKind {
+        match self {
+            AllowedType::Text => ConfigValueKind::String,
+            AllowedType::Boolean => ConfigValueKind::Boolean,
+            AllowedType::Integer => ConfigValueKind::Integer,
+        }
+    }
+}
+
+/// One writable setting, as the management editor and validator see it.
+///
+/// `native` is exposed because the transform has to address the key as it
+/// appears in the document; nothing else outside this module may compose a key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AllowlistedKey {
+    pub canonical: &'static str,
+    pub native: &'static str,
+    pub kind: ConfigValueKind,
+}
+
+/// Every key one Agent may carry in a profile, in allowlist order.
+///
+/// Management never widens this set: a profile entry outside it has no
+/// transform, so it could only be persisted as content nobody can apply.
+pub fn allowlisted_keys(agent: ConfigAgent) -> Vec<AllowlistedKey> {
+    allowlist(agent)
+        .iter()
+        .map(|key| AllowlistedKey {
+            canonical: key.canonical,
+            native: key.native,
+            kind: key.value_type.kind(),
+        })
+        .collect()
+}
+
+/// The one exact key an Agent and canonical name resolve to, if any.
+pub fn allowlisted_key(agent: ConfigAgent, canonical: &str) -> Option<AllowlistedKey> {
+    allowlisted_keys(agent)
+        .into_iter()
+        .find(|key| key.canonical == canonical)
 }
 
 // ---------------------------------------------------------------------------
