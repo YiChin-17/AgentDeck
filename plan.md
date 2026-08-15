@@ -298,7 +298,7 @@ Management change 的已完成邊界：
 
 ### Phase 7：穩定化與個人安裝
 
-目前狀態（2026-08-15）：`stabilize-personal-installation` 已實作完成，等待 archive。此 change 只處理個人安裝前的 regression 修補、macOS 本機 bundle 產出／smoke verification，以及安裝、資料備份與解除安裝文件；不建立公開更新或發佈信任鏈。
+目前狀態（2026-08-15）：已完成並封存。`stabilize-personal-installation` 驗證個人安裝前的 regression 修補、macOS 本機 bundle 產出／smoke verification，以及安裝、資料備份與解除安裝文件；commit `754e5ed` 同步主規格並封存 change，仍未建立公開更新或發佈信任鏈。
 
 本輪實際驗收結果（commit `38f6c07`，macOS 15.7.9 arm64）：
 
@@ -314,13 +314,17 @@ Management change 的已完成邊界：
 - 整理使用說明，並驗證資料備份與解除安裝方式。
 - 公開 release hosting、distribution signing、notarization 與 auto-update 不列為此階段完成條件；若未來改為對外發布，必須建立新的 Spectra change，定義簽章、notarization、release hosting 與 update trust root。
 
-下一個 change 的邊界：
+### Phase 8：macOS 公開發佈信任鏈
 
-- 保留既有 `.skills-manager` Library／SQLite、Git backup protocol、Keychain service、localStorage keys 與 `skills-manager-cli` automation contract；migration smoke test 必須從既有資料快照啟動並證明資料不被重建或遺失。
-- 以 temporary registered Codex／Claude Projects 驗證 Skill sync、conflict、Library offline、Hook、Plugin 與 Config Profile 的既有主要流程；只修正會阻擋個人安裝或使既有 contract 失敗的 regression，不新增新的管理能力。
-- 執行鎖定依賴的 frontend／Rust／contract suites與 `npm run tauri:build`，記錄 `.app` 與 macOS installer artifact 的實際路徑、Bundle ID、版本、啟動結果及首次啟動資料相容性。
-- 更新 `README.md` 的本機個人安裝、首次啟動、既有資料沿用、Library Offline、備份／還原與解除安裝說明；文件不得宣稱 AgentDeck 具備 app auto-update、公開 release hosting、distribution signing 或 notarization。
-- 公開 release、對外 distribution、Developer ID signing、notarization、release hosting、update manifest、update public key與 app auto-update 全部 out of scope。
+目前狀態（2026-08-15）：規劃中。下一個 change 固定為 `establish-macos-distribution-trust`，把 Phase 7 已驗證的本機 bundle 延伸成可由使用者驗證來源的 macOS 公開 release；不改變 Library、Agent workflow 或 runtime update behavior。
+
+- 建立 Developer ID Application signing、Apple notarization 與 stapling 流程，並以 `codesign`、`spctl`、`stapler` 驗證 `.app` 與 DMG 的 identity、hardened runtime、notarization ticket及同版號一致性。
+- 建立 tag／版本／commit 綁定的 GitHub Actions release workflow，只有驗證、簽章、notarization與既有 regression gates全部通過時才建立 GitHub Release 並上傳 `.dmg`與 SHA-256 checksum。
+- signing certificate、App Store Connect credential與其他 secrets只存在GitHub Environments／Actions secrets或本機 Keychain，不寫入repository、artifact、cache、log、文件範例或前端。
+- 文件明確區分 unsigned personal build與官方 signed／notarized hosted release，提供來源、checksum、Gatekeeper與撤回說明；不得指示停用系統安全檢查。
+- application auto-update、update manifest／public key、runtime release query、Windows／Linux signing、Mac App Store與付費 distribution不在本階段；未來若要加入auto-update，必須另開change定義獨立update trust root與rollback。
+
+完成標準：tagged release的版本與commit可追溯，公開DMG通過Apple簽章／notarization／Gatekeeper驗證且checksum可重算，release workflow不洩漏secrets，Phase 7完整regression與personal-installation contract仍通過。
 
 ## 10. 驗證策略
 
@@ -351,15 +355,15 @@ Management change 的已完成邊界：
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 7 的個人安裝穩定化，不擴張到公開 release、distribution signing、notarization、hosting 或 app auto-update：
+下一階段是 Phase 8 的 macOS 公開發佈信任鏈，不加入 application auto-update：
 
-1. change 名稱為 `stabilize-personal-installation`；先盤點並重跑 migration、sync／conflict、Library offline、CLI adapters、Hooks、Plugins 與 Config Profiles 的既有 regression contracts，只修正阻擋個人安裝的失敗。
-2. 使用 temporary registered Codex／Claude Projects 做 end-to-end smoke verification，證明 Skill deployment、Plugin CLI preview、Hook／Config Profile mutation與 recovery 都維持既有固定 authority、preview-first與 rollback 邊界。
-3. 使用既有 Library／SQLite fixture 啟動 packaged app，確認 schema migration、`.skills-manager` 資料、Git backup metadata、Keychain service、localStorage keys 與 `skills-manager-cli` contract 都沿用，不建立平行資料命名空間。
-4. 執行 `npm run tauri:build`，驗證產出的 AgentDeck `.app` 與 macOS installer artifact 的 Bundle ID、版本、可啟動性、主要頁面與 Library Online／Offline 狀態；記錄可重複的 artifact path 與 smoke checklist。
-5. 更新 `README.md`，提供本機個人安裝、首次啟動、既有 Skills Manager 資料沿用、Library 位置／offline、Git backup、還原與解除安裝步驟；明確標示此 build 沒有 app auto-update 或公開 distribution 保證。
-6. 完整 frontend／Rust／Node contract suites、dependency audits、`git diff --check`、Spectra analyze／validate 與 packaged-app smoke 全部通過後 park；本輪只建立 proposal、design、spec 與 tasks，不直接實作。
+1. change 名稱為 `establish-macos-distribution-trust`；先固定tag、version、commit、Bundle ID與Developer ID identity的可驗證關係。
+2. 建立只從受保護GitHub Environment取得secrets的macOS release workflow，依序執行locked regression、bundle build、signing、notarization、stapling、Gatekeeper與checksum檢查。
+3. 只有全部gate通過才建立GitHub Release並上傳DMG與checksum；失敗、取消或重跑不得覆寫既有tag／release，也不得留下未簽或未notarize的公開asset。
+4. 更新公開安裝與驗證文件，區分personal local build與official hosted release，說明checksum、Gatekeeper、已知撤回流程及secrets邊界。
+5. 保留application updater缺席與所有Phase 7 data／workflow contracts；auto-update、其他平台簽章與App Store另開change。
+6. 完整 frontend／Rust／Node contract suites、dependency audits、`npm run check:personal-installation`、`git diff --check`與Spectra analyze／validate全部通過後park；本輪只建立proposal、design、spec與tasks，不直接實作。
 
 ## 13. 尚待使用者決定
 
-目前無。Phase 6 已完成；下一個 change 的範圍固定為 `stabilize-personal-installation` 的 regression、packaged-app smoke與個人安裝文件，不包含公開 release、distribution signing、notarization、hosting、update manifest／trust root或 app auto-update。
+目前無。Phase 8範圍固定為`establish-macos-distribution-trust`的macOS Developer ID signing、notarization、Gatekeeper、checksum與staged GitHub Release；application auto-update、Windows／Linux公開artifact、Mac App Store與付費distribution另開change。
