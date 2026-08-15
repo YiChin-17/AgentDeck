@@ -17,7 +17,7 @@ tdd: true
 # claude_slash_commands: true
 
 # Enable git worktree support for isolated change branches
-# worktree: true
+worktree: true
 
 # Custom git worktrees directory
 # worktrees_dir: .spectra/worktrees
