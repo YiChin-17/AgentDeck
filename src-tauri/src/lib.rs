@@ -1077,6 +1077,8 @@ pub fn run() {
             // Plugins (user-scope mutation)
             commands::plugin_mutation::preview_plugin_mutation,
             commands::plugin_mutation::apply_plugin_mutation,
+            // Config Profiles (read-only inspection)
+            commands::config_profile_inventory::get_config_profile_inventory,
             // Projects
             commands::projects::get_projects,
             commands::projects::add_project,

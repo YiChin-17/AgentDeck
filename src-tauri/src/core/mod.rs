@@ -3,6 +3,7 @@ pub mod artifact;
 pub mod audit_log;
 pub mod auto_backup;
 pub mod central_repo;
+pub mod config_profile_inventory;
 pub mod content_hash;
 pub mod crypto;
 pub mod error;

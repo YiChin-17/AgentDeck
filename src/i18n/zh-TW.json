@@ -15,7 +15,8 @@
     "addProject": "關聯專案",
     "settings": "設定",
     "hooks": "Hooks",
-    "plugins": "Plugin"
+    "plugins": "Plugin",
+    "configProfiles": "Config Profiles"
   },
   "help": {
     "eyebrow": "操作指南",
@@ -1369,6 +1370,76 @@
         "non_zero_exit": "指令執行失敗",
         "output_too_large": "回應超過 1 MiB 上限"
       }
+    }
+  },
+  "configProfiles": {
+    "title": "Config Profiles",
+    "subtitle": "唯讀檢視 Codex 與 Claude Code 的固定設定來源，不會修改任何檔案。",
+    "readOnlyBadge": "唯讀檢視",
+    "runtimeLimitation": "此頁只解析下方列出的固定來源。CLI 參數、環境變數、managed policy、專案信任狀態，以及未掃描的來源，都可能改變工作階段實際採用的值。",
+    "loadFailed": "無法讀取設定來源。",
+    "projectNotFound": "AgentDeck 已不再登錄這個專案。",
+    "noProjects": "尚未連結任何專案，因此只檢視使用者層級的來源。",
+    "noSettings": "在已檢視的來源中找不到允許顯示的設定。",
+    "noDiff": "同一個 Agent 目前還沒有兩層來源可以比較。",
+    "sourceFailureHint": "至少有一個來源無法檢視，上方其餘來源不受影響。",
+    "hasUnexposedFields": "（含未顯示的內容）",
+    "sourcesHeading": "來源",
+    "settingsHeading": "設定",
+    "diffHeading": "層級差異",
+    "diagnosticsHeading": "診斷",
+    "filter": {
+      "all": "全部",
+      "agent": "Agent",
+      "scope": "層級",
+      "project": "專案"
+    },
+    "projectNone": "只看使用者層級",
+    "agent": {
+      "codex": "Codex",
+      "claude_code": "Claude Code"
+    },
+    "scope": {
+      "user": "使用者",
+      "project": "專案",
+      "project_local": "專案（本機）"
+    },
+    "status": {
+      "missing": "不存在",
+      "available": "可讀取",
+      "unreadable": "無法讀取",
+      "too_large": "超過大小上限",
+      "unsupported_symlink": "符號連結（不跟隨）",
+      "invalid_format": "格式錯誤"
+    },
+    "diagnostic": {
+      "unreadable": "來源存在，但無法讀取。",
+      "too_large": "來源超過 1 MiB 的讀取上限。",
+      "unsupported_symlink": "來源是符號連結，未讀取其指向的檔案。",
+      "invalid_format": "來源無法解析。",
+      "invalid_allowed_value": "某個已知設定的型別不符，已跳過該項。"
+    },
+    "resolution": {
+      "observed_active": "在這些來源中生效",
+      "observed_overridden": "已被覆蓋",
+      "project_candidate": "專案候選值（需信任該目錄）"
+    },
+    "diff": {
+      "same": "相同",
+      "added": "新增",
+      "changed": "變更",
+      "removed": "移除"
+    },
+    "column": {
+      "key": "設定鍵",
+      "value": "值",
+      "scope": "層級",
+      "source": "來源",
+      "resolution": "解析結果",
+      "agent": "Agent",
+      "status": "狀態",
+      "path": "路徑",
+      "fingerprint": "指紋"
     }
   }
 }

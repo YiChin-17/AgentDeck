@@ -593,7 +593,7 @@ code:
 ---
 ### Requirement: Existing specialized workflows remain available
 
-AgentDeck MUST preserve Agent Skills discovery and read-only source behavior, supported non-canonical Agent targets, and existing modal dialogs outside the Library and Project Inspector flow. The sidebar MUST NOT expose routes for Artifact types that are not implemented.
+AgentDeck MUST preserve Agent Skills discovery and read-only source behavior, supported non-canonical Agent targets, and existing modal dialogs outside the Library and Project Inspector flow. The sidebar MUST NOT expose a route for an Artifact workflow that has no implemented page. The Config Profiles route SHALL lead to its implemented inspection-only page and MUST NOT imply that profile mutation is available.
 
 #### Scenario: Agent Skills workspace remains specialized
 
@@ -601,38 +601,40 @@ AgentDeck MUST preserve Agent Skills discovery and read-only source behavior, su
 - **THEN** AgentDeck displays its existing discovery and read-only workflow rather than forcing the four-lane Board
 - **AND** source identity and action restrictions remain unchanged
 
+##### Example: Read-only Agent Skill source
+
+- **GIVEN** an Agent Skill was discovered from an Agent-managed source
+- **WHEN** the user opens its workspace
+- **THEN** the existing read-only source view remains available and no Board deployment control replaces it
+
 #### Scenario: Unimplemented navigation is absent
 
-- **GIVEN** Plugin, Hook, or Config Profile management is not implemented
+- **GIVEN** an Artifact workflow has no implemented page
 - **WHEN** the sidebar renders
 - **THEN** no enabled navigation item leads to an empty or non-functional management page
 
+#### Scenario: Config Profiles navigation opens inspection
+
+- **GIVEN** Config Profile inspection is implemented and profile mutation is not implemented
+- **WHEN** the user selects Config Profiles in the sidebar
+- **THEN** AgentDeck opens the Config Profiles inspection page
+- **AND** the page exposes no create, edit, assign, apply, backup, or restore control
+
 <!-- @trace
-source: default-product-ui-to-traditional-chinese
-updated: 2026-08-10
+source: inspect-codex-claude-config-profiles
+updated: 2026-08-15
 code:
-  - src/components/Layout.tsx
-  - src/i18n/zh.json
-  - src/views/Settings.tsx
-  - scripts/check-skill-pack-ui.mjs
-  - package.json
-  - scripts/check-board-lanes.ts
-  - src/components/PresetBar.tsx
-  - src/components/Sidebar.tsx
-  - src/components/CommandPalette.tsx
-  - scripts/check-board-layout.mjs
-  - scripts/check-i18n-locales.mjs
-  - src/hooks/useTheme.ts
-  - src/i18n/index.ts
-  - src/components/ArtifactBoard.tsx
-  - src/components/DetailSheet.tsx
-  - src/index.css
-  - src/views/ProjectDetail.tsx
-  - src/i18n/zh-TW.json
-  - src/components/ArtifactInspector.tsx
+  - src-tauri/src/lib.rs
   - src/i18n/en.json
-  - src/components/boardLanes.ts
-  - tailwind.config.js
+  - src/lib/tauri.ts
+  - src/i18n/zh-TW.json
   - src/App.tsx
-  - src/views/MySkills.tsx
+  - src/views/ConfigProfiles.tsx
+  - package.json
+  - src-tauri/src/core/config_profile_inventory.rs
+  - scripts/check-config-profiles-ui.mjs
+  - src/components/Sidebar.tsx
+  - src-tauri/src/core/mod.rs
+  - src-tauri/src/commands/mod.rs
+  - src-tauri/src/commands/config_profile_inventory.rs
 -->

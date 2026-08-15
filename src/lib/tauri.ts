@@ -1210,3 +1210,101 @@ export const previewPluginMutation = (request: {
  */
 export const applyPluginMutation = (token: string) =>
   invoke<PluginMutationApplyOutcome>("apply_plugin_mutation", { request: { token } });
+
+// ── Config Profiles (read-only inspection) ──
+
+export type ConfigAgentKey = "codex" | "claude_code";
+export type ConfigScopeKey = "user" | "project" | "project_local";
+export type ConfigFormatKey = "toml" | "json";
+export type ConfigSourceStatusKey =
+  | "missing"
+  | "available"
+  | "unreadable"
+  | "too_large"
+  | "unsupported_symlink"
+  | "invalid_format";
+export type ConfigDiagnosticCodeKey =
+  | "unreadable"
+  | "too_large"
+  | "unsupported_symlink"
+  | "invalid_format"
+  | "invalid_allowed_value";
+export type ConfigResolutionKey =
+  | "observed_active"
+  | "observed_overridden"
+  | "project_candidate";
+export type ConfigDiffStatusKey = "same" | "added" | "changed" | "removed";
+
+/**
+ * The whole read-only guarantee of the Config Profiles page starts here: the
+ * request names a registered Project and two filters, so the frontend cannot
+ * point the backend at a directory, a file or an environment.
+ */
+export interface ConfigInventoryRequest {
+  projectId: string | null;
+  agent: ConfigAgentKey | null;
+  scope: ConfigScopeKey | null;
+}
+
+/** One of the three scalar shapes an allowlisted setting may take. */
+export type ConfigValue =
+  | { type: "string"; value: string }
+  | { type: "boolean"; value: boolean }
+  | { type: "integer"; value: number };
+
+export interface ConfigSource {
+  id: string;
+  agent: ConfigAgentKey;
+  scope: ConfigScopeKey;
+  projectId: string | null;
+  format: ConfigFormatKey;
+  displayPath: string;
+  status: ConfigSourceStatusKey;
+  fingerprint: string | null;
+  /** That more content exists — never how much, which keys, or which values. */
+  hasUnexposedFields: boolean;
+}
+
+export interface ConfigSetting {
+  agent: ConfigAgentKey;
+  canonicalKey: string;
+  nativeKey: string;
+  value: ConfigValue;
+  scope: ConfigScopeKey;
+  sourceId: string;
+  projectId: string | null;
+  resolution: ConfigResolutionKey;
+}
+
+export interface ConfigDiffEntry {
+  agent: ConfigAgentKey;
+  canonicalKey: string;
+  baseScope: ConfigScopeKey;
+  compareScope: ConfigScopeKey;
+  status: ConfigDiffStatusKey;
+  baseValue: ConfigValue | null;
+  compareValue: ConfigValue | null;
+}
+
+export interface ConfigDiagnostic {
+  code: ConfigDiagnosticCodeKey;
+  agent: ConfigAgentKey;
+  scope: ConfigScopeKey;
+  projectId: string | null;
+  sourceId: string;
+  /** An allowlisted key name, never the value that was rejected. */
+  key: string | null;
+}
+
+export interface ConfigProfileInventory {
+  sources: ConfigSource[];
+  settings: ConfigSetting[];
+  diffs: ConfigDiffEntry[];
+  diagnostics: ConfigDiagnostic[];
+  selectedProjectId: string | null;
+  generatedAt: number;
+}
+
+/** Reads the fixed Codex and Claude Code sources. Nothing here writes. */
+export const getConfigProfileInventory = (request: ConfigInventoryRequest) =>
+  invoke<ConfigProfileInventory>("get_config_profile_inventory", { request });

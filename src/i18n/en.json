@@ -15,7 +15,8 @@
     "addProject": "Link Project",
     "settings": "Settings",
     "hooks": "Hooks",
-    "plugins": "Plugins"
+    "plugins": "Plugins",
+    "configProfiles": "Config Profiles"
   },
   "help": {
     "eyebrow": "Guide",
@@ -1369,6 +1370,76 @@
         "non_zero_exit": "The command failed",
         "output_too_large": "The response exceeded the 1 MiB limit"
       }
+    }
+  },
+  "configProfiles": {
+    "title": "Config Profiles",
+    "subtitle": "Read the fixed Codex and Claude Code configuration sources without changing them.",
+    "readOnlyBadge": "Read-only inspection",
+    "runtimeLimitation": "This view resolves only the fixed sources listed below. CLI flags, environment variables, managed policy, project trust and any source not scanned here can still change the value a session actually uses.",
+    "loadFailed": "Could not read the configuration sources.",
+    "projectNotFound": "That project is no longer registered in AgentDeck.",
+    "noProjects": "No project is linked yet, so only the user sources are inspected.",
+    "noSettings": "No allowlisted setting was found in the inspected sources.",
+    "noDiff": "No two inspected layers of the same Agent can be compared yet.",
+    "sourceFailureHint": "At least one source could not be inspected. The remaining sources above are unaffected.",
+    "hasUnexposedFields": "(has content that is not shown)",
+    "sourcesHeading": "Sources",
+    "settingsHeading": "Settings",
+    "diffHeading": "Layer differences",
+    "diagnosticsHeading": "Diagnostics",
+    "filter": {
+      "all": "All",
+      "agent": "Agent",
+      "scope": "Scope",
+      "project": "Project"
+    },
+    "projectNone": "User scope only",
+    "agent": {
+      "codex": "Codex",
+      "claude_code": "Claude Code"
+    },
+    "scope": {
+      "user": "User",
+      "project": "Project",
+      "project_local": "Project (local)"
+    },
+    "status": {
+      "missing": "Missing",
+      "available": "Available",
+      "unreadable": "Unreadable",
+      "too_large": "Too large",
+      "unsupported_symlink": "Symbolic link (not followed)",
+      "invalid_format": "Invalid format"
+    },
+    "diagnostic": {
+      "unreadable": "The source exists but could not be read.",
+      "too_large": "The source is larger than the 1 MiB read limit.",
+      "unsupported_symlink": "The source is a symbolic link, so its target was not read.",
+      "invalid_format": "The source could not be parsed.",
+      "invalid_allowed_value": "A known setting has an unexpected type and was skipped."
+    },
+    "resolution": {
+      "observed_active": "Active in these sources",
+      "observed_overridden": "Overridden",
+      "project_candidate": "Project candidate (needs trust)"
+    },
+    "diff": {
+      "same": "Same",
+      "added": "Added",
+      "changed": "Changed",
+      "removed": "Removed"
+    },
+    "column": {
+      "key": "Key",
+      "value": "Value",
+      "scope": "Scope",
+      "source": "Source",
+      "resolution": "Resolution",
+      "agent": "Agent",
+      "status": "Status",
+      "path": "Path",
+      "fingerprint": "Fingerprint"
     }
   }
 }
