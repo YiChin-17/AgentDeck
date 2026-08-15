@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-14
+最後更新：2026-08-15
 
 ## 1. 專案摘要
 
@@ -268,18 +268,31 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 6：Config Profiles
 
-- [ ] 先以固定、受支援的路徑唯讀取得 Codex TOML 與 Claude JSON 設定，保留來源 scope、解析錯誤與未知欄位，不讀取或顯示 secret 值。
-- [ ] 建立 Agent-specific 可選欄位集合與 canonical normalization，顯示 user／project／local 有效值、來源與唯讀 diff。
-- [ ] 建立 profile、專案指派、write preview、外部修改衝突偵測、backup、atomic write 與 restore。
+目前狀態（2026-08-15）：進行中。`inspect-codex-claude-config-profiles` 已歸檔；固定 user／project／local 來源 discovery、1 MiB bounded parse、非敏感 allowlist normalization、typed diagnostics、supported-source precedence／diff 與唯讀 Config Profiles 頁面均已完成。完整 Rust suite 804 tests、frontend build、lint、i18n、Config Profiles UI contract、Spectra analyze／validate 均通過。
+
+- [x] 先以固定、受支援的路徑唯讀取得 Codex TOML 與 Claude JSON 設定，保留來源 scope、解析錯誤與未知欄位，不讀取或顯示 secret 值。
+- [x] 建立 Agent-specific 可選欄位集合與 canonical normalization，顯示 user／project／local 有效值、來源與唯讀 diff。
+- [ ] 建立只含 allowlist 非敏感 scalar 的 reusable profile 與已登錄專案指派。
+- [ ] 建立 project-scope write preview、外部修改衝突偵測、backup、atomic write 與 restore。
 - secrets 只保留引用或交由系統安全儲存，不寫進 profile。
 
-下一個 change 的邊界：
+已完成 change 的邊界：
 
 - change 名稱固定為 `inspect-codex-claude-config-profiles`，只建立唯讀 discovery、解析、正規化、來源診斷與 Config Profiles 頁面。
 - Codex 只讀 `~/.codex/config.toml` 與已登錄專案的 `<repo>/.codex/config.toml`；Claude Code 只讀 `~/.claude/settings.json`、`<repo>/.claude/settings.json` 與 `<repo>/.claude/settings.local.json`。
 - 只顯示明確 allowlist 的非敏感欄位；secret、credential、token、API key、環境變數值與未知欄位內容不進入 frontend DTO 或 log。
 - 保留 Agent、scope、來源檔案、存在狀態、解析狀態與檔案 fingerprint；無效 TOML／JSON 以 typed diagnostic 隔離，不讓單一來源使整頁失敗。
 - 本 change 不建立持久 Config Profile、不寫回設定檔、不套用專案指派、不建立 backup／restore，也不修改系統安全儲存。
+
+下一個 change 的邊界：
+
+- change 名稱固定為 `manage-codex-claude-config-profiles`，建立 ConfigProfile Artifact detail、reusable profile CRUD、已登錄專案指派與安全的 project-scope apply／restore。
+- profile 只持久化既有 inspection allowlist 內的 typed scalar；secret、credential、token、API key、環境變數、permission rules、command、path 與 unknown key 不得進入 profile、SQLite、frontend mutation DTO、log 或 Git backup metadata。
+- assignment 只可引用 AgentDeck 已登錄 project ID；Codex 寫入 `<repo>/.codex/config.toml`，Claude Code 寫入 `<repo>/.claude/settings.json`。本 change 不修改 user sources 或 Claude `<repo>/.claude/settings.local.json`。
+- preview 只顯示 allowlisted typed diff，並綁定 target source fingerprint、profile revision、project ID、Agent 與 exact mutation；apply 必須重新讀取並在任何 revision／fingerprint 不符時回 `stale_preview`。
+- TOML 使用既有 `toml_edit` 保留未知欄位、註解與排列；JSON 只改選定 allowlist keys 並保留其他 key/value。寫入前建立 owner-private recovery backup，使用同目錄 staged file、sync 與 atomic replace；任何一步失敗不得留下部分設定或已提交 assignment state。
+- restore 只使用該 ConfigProfile deployment 的最新有效 recovery point，先 preview、再以 current fingerprint 防衝突，成功前先把目前 bytes／absence 保存為新的 recovery point。
+- Config Profiles 頁面新增 create／edit／delete、project assignment、preview／confirm apply 與 restore；不提供任意 path、user／local scope mutation、secret storage、background auto-apply 或跨專案單鍵批次 mutation。
 
 完成標準：能把同一組非敏感設定安全套用到多個專案，並可預覽及回復。
 
@@ -303,10 +316,10 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 - 外接 Library 拔除或 unmount 的 offline 測試。
 - 套用、取消與回復流程的人工 GUI 驗證。
 
-目前已驗證的基準結果（2026-08-14）：
+目前已驗證的基準結果（2026-08-15）：
 
 - 前端 production build 通過。
-- Rust tests：762 passed，0 failed。
+- Rust tests：804 passed，0 failed。
 - npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
@@ -320,16 +333,16 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 6 的唯讀 Config Profile inspection，不建立 profile、不寫回設定檔，也不套用專案指派：
+下一階段是 Phase 6 的 Config Profile persistence、project assignment 與安全 mutation／restore，不擴張到 user／local scope 或 secret storage：
 
-1. change 名稱為 `inspect-codex-claude-config-profiles`；Codex 與 Claude Code 只掃描計畫中列出的固定 user／project／local 設定檔，project path 必須來自 AgentDeck 已登錄專案。
-2. backend 以 Agent-specific parser 讀取 TOML／JSON，將 allowlist 內的非敏感設定正規化為共同 DTO，同時保留 Agent、scope、來源、存在狀態、解析狀態與 fingerprint。
-3. secret、credential、token、API key、環境變數值與未知欄位內容不得跨過 backend boundary；frontend 只接收可安全顯示的欄位和值。
-4. 一個來源不存在或格式錯誤時回傳 typed diagnostic，其餘來源仍可顯示；唯讀檢視不得修復、格式化或覆寫原檔。
-5. Config Profiles 頁面顯示 Agent／scope／project filters、來源診斷、有效值來源與 user／project／local 差異；未實作的 create／assign／apply／backup／restore 不呈現可操作控制項。
-6. 測試使用暫存設定檔涵蓋有效、缺檔、無效格式、未知欄位與敏感資料遮蔽；不得讀寫真實 `~/.codex`、`~/.claude` 或系統安全儲存。
-7. proposal、design、spec 與 tasks 必須通過 `spectra analyze` 與 `spectra validate` 後 park；本輪不直接實作。
+1. change 名稱為 `manage-codex-claude-config-profiles`；profile 只保存 inspection capability 已定義的 allowlist typed scalar，並建立 ConfigProfile Artifact detail 與已登錄 project assignment。
+2. Codex 只修改已登錄 project 的 `.codex/config.toml`，Claude Code 只修改 `.claude/settings.json`；request 不接受 path、home、cwd、environment、raw document 或任意 key。
+3. create／edit／delete 與 assignment 必須維持 referential integrity；已指派或有 recovery state 的 profile 不可靜默刪除，失敗不得留下部分 Artifact、detail、assignment 或 deployment rows。
+4. preview 回傳 allowlisted typed diff，並綁定 profile revision、project ID、Agent、target source fingerprint 與 exact mutation；apply 重新驗證，任何 mismatch 回 `stale_preview` 且零寫入。
+5. apply 使用 `toml_edit` 或 JSON object mutation 保留未知內容，建立 owner-private recovery backup，以同目錄 staged file、sync 與 atomic replace 寫入；不得把 secret 或 raw document放進一般 DTO、log 或 Git backup metadata。
+6. restore 先 preview 並要求 exact current fingerprint，成功前先保存目前 bytes／absence；Config Profiles UI 提供明確 preview／confirm／restore，取消不執行 mutation。
+7. 測試涵蓋 schema migration、CRUD／assignment、valid／missing／invalid source、stale preview、unknown-field preservation、fault injection rollback、backup permissions、atomic replace、restore 與零 secret leakage；proposal、design、spec 與 tasks 通過 Spectra analyze／validate 後 park，本輪不直接實作。
 
 ## 13. 尚待使用者決定
 
-目前無。Plugins 階段已完成；下一個 change 的範圍固定為 Codex／Claude Code Config 的唯讀 discovery、正規化與差異檢視，不包含 profile persistence、設定檔 mutation、專案指派、backup／restore 或 secret storage。
+目前無。Config Profile 唯讀 inspection 已完成；下一個 change 的範圍固定為 allowlist profile persistence、已登錄 project assignment、project-scope preview／apply／restore，不包含 user／local scope mutation、任意 path、background auto-apply 或 secret storage。
