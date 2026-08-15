@@ -268,15 +268,15 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 6：Config Profiles
 
-目前狀態（2026-08-15）：進行中。`inspect-codex-claude-config-profiles` 已歸檔；固定 user／project／local 來源 discovery、1 MiB bounded parse、非敏感 allowlist normalization、typed diagnostics、supported-source precedence／diff 與唯讀 Config Profiles 頁面均已完成。完整 Rust suite 804 tests、frontend build、lint、i18n、Config Profiles UI contract、Spectra analyze／validate 均通過。
+目前狀態（2026-08-15）：已完成。`inspect-codex-claude-config-profiles` 與 `manage-codex-claude-config-profiles` 均已歸檔；固定 user／project／local 來源 discovery、1 MiB bounded parse、非敏感 allowlist normalization、typed diagnostics、supported-source precedence／diff、typed profile CRUD、已登錄 Project／Agent assignment、project-scope preview／apply、owner-private recovery 與 conflict-safe restore 均已完成。完整 Rust suite 894 tests、frontend build、lint、i18n、兩個 Config Profiles UI contracts、fake-IPC success／cancel／stale／double-confirm 操作、Spectra analyze／validate 均通過。
 
 - [x] 先以固定、受支援的路徑唯讀取得 Codex TOML 與 Claude JSON 設定，保留來源 scope、解析錯誤與未知欄位，不讀取或顯示 secret 值。
 - [x] 建立 Agent-specific 可選欄位集合與 canonical normalization，顯示 user／project／local 有效值、來源與唯讀 diff。
-- [ ] 建立只含 allowlist 非敏感 scalar 的 reusable profile 與已登錄專案指派。
-- [ ] 建立 project-scope write preview、外部修改衝突偵測、backup、atomic write 與 restore。
+- [x] 建立只含 allowlist 非敏感 scalar 的 reusable profile 與已登錄專案指派。
+- [x] 建立 project-scope write preview、外部修改衝突偵測、backup、atomic write 與 restore。
 - secrets 只保留引用或交由系統安全儲存，不寫進 profile。
 
-已完成 change 的邊界：
+唯讀 inspection change 的已完成邊界：
 
 - change 名稱固定為 `inspect-codex-claude-config-profiles`，只建立唯讀 discovery、解析、正規化、來源診斷與 Config Profiles 頁面。
 - Codex 只讀 `~/.codex/config.toml` 與已登錄專案的 `<repo>/.codex/config.toml`；Claude Code 只讀 `~/.claude/settings.json`、`<repo>/.claude/settings.json` 與 `<repo>/.claude/settings.local.json`。
@@ -284,7 +284,7 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 - 保留 Agent、scope、來源檔案、存在狀態、解析狀態與檔案 fingerprint；無效 TOML／JSON 以 typed diagnostic 隔離，不讓單一來源使整頁失敗。
 - 本 change 不建立持久 Config Profile、不寫回設定檔、不套用專案指派、不建立 backup／restore，也不修改系統安全儲存。
 
-下一個 change 的邊界：
+Management change 的已完成邊界：
 
 - change 名稱固定為 `manage-codex-claude-config-profiles`，建立 ConfigProfile Artifact detail、reusable profile CRUD、已登錄專案指派與安全的 project-scope apply／restore。
 - profile 只持久化既有 inspection allowlist 內的 typed scalar；secret、credential、token、API key、環境變數、permission rules、command、path 與 unknown key 不得進入 profile、SQLite、frontend mutation DTO、log 或 Git backup metadata。
@@ -298,11 +298,21 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ### Phase 7：穩定化與個人安裝
 
+目前狀態（2026-08-15）：規劃中。下一個 change 固定為 `stabilize-personal-installation`，只處理個人安裝前的 regression 修補、macOS 本機 bundle 產出／smoke verification，以及安裝、資料備份與解除安裝文件；不建立公開更新或發佈信任鏈。
+
 - 完成 migration、同步、衝突、offline、CLI adapter 測試。
 - 測試真實 Codex 與 Claude 專案。
 - 執行本機 Tauri build，驗證 `.app` 或平台安裝包可供個人安裝。
 - 整理使用說明，並驗證資料備份與解除安裝方式。
 - 公開 release hosting、distribution signing、notarization 與 auto-update 不列為此階段完成條件；若未來改為對外發布，必須建立新的 Spectra change，定義簽章、notarization、release hosting 與 update trust root。
+
+下一個 change 的邊界：
+
+- 保留既有 `.skills-manager` Library／SQLite、Git backup protocol、Keychain service、localStorage keys 與 `skills-manager-cli` automation contract；migration smoke test 必須從既有資料快照啟動並證明資料不被重建或遺失。
+- 以 temporary registered Codex／Claude Projects 驗證 Skill sync、conflict、Library offline、Hook、Plugin 與 Config Profile 的既有主要流程；只修正會阻擋個人安裝或使既有 contract 失敗的 regression，不新增新的管理能力。
+- 執行鎖定依賴的 frontend／Rust／contract suites與 `npm run tauri:build`，記錄 `.app` 與 macOS installer artifact 的實際路徑、Bundle ID、版本、啟動結果及首次啟動資料相容性。
+- 更新 `README.md` 的本機個人安裝、首次啟動、既有資料沿用、Library Offline、備份／還原與解除安裝說明；文件不得宣稱 AgentDeck 具備 app auto-update、公開 release hosting、distribution signing 或 notarization。
+- 公開 release、對外 distribution、Developer ID signing、notarization、release hosting、update manifest、update public key與 app auto-update 全部 out of scope。
 
 ## 10. 驗證策略
 
@@ -319,7 +329,7 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 目前已驗證的基準結果（2026-08-15）：
 
 - 前端 production build 通過。
-- Rust tests：804 passed，0 failed。
+- Rust tests：894 passed，0 failed。
 - npm 與 Rust production dependency audits 均為 0 vulnerabilities。
 
 ## 11. 已知風險
@@ -333,16 +343,15 @@ Plugin 不只是 JSON manifest，還可能包含 Skills、Hooks、MCP servers、
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 6 的 Config Profile persistence、project assignment 與安全 mutation／restore，不擴張到 user／local scope 或 secret storage：
+下一階段是 Phase 7 的個人安裝穩定化，不擴張到公開 release、distribution signing、notarization、hosting 或 app auto-update：
 
-1. change 名稱為 `manage-codex-claude-config-profiles`；profile 只保存 inspection capability 已定義的 allowlist typed scalar，並建立 ConfigProfile Artifact detail 與已登錄 project assignment。
-2. Codex 只修改已登錄 project 的 `.codex/config.toml`，Claude Code 只修改 `.claude/settings.json`；request 不接受 path、home、cwd、environment、raw document 或任意 key。
-3. create／edit／delete 與 assignment 必須維持 referential integrity；已指派或有 recovery state 的 profile 不可靜默刪除，失敗不得留下部分 Artifact、detail、assignment 或 deployment rows。
-4. preview 回傳 allowlisted typed diff，並綁定 profile revision、project ID、Agent、target source fingerprint 與 exact mutation；apply 重新驗證，任何 mismatch 回 `stale_preview` 且零寫入。
-5. apply 使用 `toml_edit` 或 JSON object mutation 保留未知內容，建立 owner-private recovery backup，以同目錄 staged file、sync 與 atomic replace 寫入；不得把 secret 或 raw document放進一般 DTO、log 或 Git backup metadata。
-6. restore 先 preview 並要求 exact current fingerprint，成功前先保存目前 bytes／absence；Config Profiles UI 提供明確 preview／confirm／restore，取消不執行 mutation。
-7. 測試涵蓋 schema migration、CRUD／assignment、valid／missing／invalid source、stale preview、unknown-field preservation、fault injection rollback、backup permissions、atomic replace、restore 與零 secret leakage；proposal、design、spec 與 tasks 通過 Spectra analyze／validate 後 park，本輪不直接實作。
+1. change 名稱為 `stabilize-personal-installation`；先盤點並重跑 migration、sync／conflict、Library offline、CLI adapters、Hooks、Plugins 與 Config Profiles 的既有 regression contracts，只修正阻擋個人安裝的失敗。
+2. 使用 temporary registered Codex／Claude Projects 做 end-to-end smoke verification，證明 Skill deployment、Plugin CLI preview、Hook／Config Profile mutation與 recovery 都維持既有固定 authority、preview-first與 rollback 邊界。
+3. 使用既有 Library／SQLite fixture 啟動 packaged app，確認 schema migration、`.skills-manager` 資料、Git backup metadata、Keychain service、localStorage keys 與 `skills-manager-cli` contract 都沿用，不建立平行資料命名空間。
+4. 執行 `npm run tauri:build`，驗證產出的 AgentDeck `.app` 與 macOS installer artifact 的 Bundle ID、版本、可啟動性、主要頁面與 Library Online／Offline 狀態；記錄可重複的 artifact path 與 smoke checklist。
+5. 更新 `README.md`，提供本機個人安裝、首次啟動、既有 Skills Manager 資料沿用、Library 位置／offline、Git backup、還原與解除安裝步驟；明確標示此 build 沒有 app auto-update 或公開 distribution 保證。
+6. 完整 frontend／Rust／Node contract suites、dependency audits、`git diff --check`、Spectra analyze／validate 與 packaged-app smoke 全部通過後 park；本輪只建立 proposal、design、spec 與 tasks，不直接實作。
 
 ## 13. 尚待使用者決定
 
-目前無。Config Profile 唯讀 inspection 已完成；下一個 change 的範圍固定為 allowlist profile persistence、已登錄 project assignment、project-scope preview／apply／restore，不包含 user／local scope mutation、任意 path、background auto-apply 或 secret storage。
+目前無。Phase 6 已完成；下一個 change 的範圍固定為 `stabilize-personal-installation` 的 regression、packaged-app smoke與個人安裝文件，不包含公開 release、distribution signing、notarization、hosting、update manifest／trust root或 app auto-update。
