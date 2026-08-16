@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-15
+最後更新：2026-08-16
 
 ## 1. 專案摘要
 
@@ -316,7 +316,7 @@ Management change 的已完成邊界：
 
 ### Phase 8：macOS 公開發佈信任鏈
 
-目前狀態（2026-08-16）：repository 端已完成，尚未執行 tagged acceptance run。`establish-macos-distribution-trust` 把 Phase 7 已驗證的本機 bundle 延伸成可由使用者驗證來源的 macOS 公開 release；未改變 Library、Agent workflow 或 runtime update behavior。
+目前狀態（2026-08-16）：已完成並封存。`establish-macos-distribution-trust` 已由 PR #1 合併到 `main`（merge commit `7d0761a`），把 Phase 7 已驗證的本機 bundle 延伸成可由使用者驗證來源的 macOS release contract；未改變 Library、Agent workflow 或 runtime update behavior。AgentDeck 目前維持 personal-only，保留的 workflow、checks 與文件不構成目前的公開發佈管道。
 
 已完成的實際結果：
 
@@ -325,19 +325,11 @@ Management change 的已完成邊界：
 - 每個 architecture 驗證 build 出的 `AgentDeck.app` 與唯讀掛載 DMG 內唯一的 app：Bundle ID、版本、Developer ID、TeamIdentifier、timestamp、hardened runtime、stapler 與 Gatekeeper，DMG 本身也驗票據。publish 端只接受兩個 DMG 與兩個 `.sha256`、同一 commit，先驗 draft 再公開，且拒絕覆寫既有 tag／release／asset。
 - 新增 `npm run check:macos-distribution` 與其 fixtures，以 `identity_mismatch`、`tag_version_mismatch`、`release_authority_too_broad`、`release_environment_missing`、`secret_boundary_violation`、`updater_asset_present`、`verification_gate_missing`、`checksum_missing`、`publish_order_invalid`、`documentation_incomplete` 十個穩定 finding 鎖住上述形狀。
 - `docs/macos-distribution.md` 說明官方下載、checksum 重算、簽章／notarization 意義與撤回程序；README 明確分開 personal local build 與官方 signed／notarized release，兩邊都不指示停用 Gatekeeper。
-- 本輪驗收：前端 build、lint、i18n、全部 repository Node contracts（181 tests）、`cargo test --locked`（894 passed）、npm 與 Rust production audits、`npm run check:personal-installation` 全部通過。
+- 本輪驗收：前端 build、lint、i18n、全部 repository Node contracts（196 tests）、`cargo test --locked`（894 passed）、npm 與 Rust production audits、`npm run check:personal-installation` 全部通過。
 
-未完成：受保護的 `macos-release` Environment 尚未配置 Apple secrets 與 `APPLE_TEAM_ID`，因此尚未以新 tag 執行 acceptance run，也沒有任何公開 release。
+目前 personal-only 運作狀態：受保護的 `macos-release` Environment 未配置 Apple secrets 與 `APPLE_TEAM_ID`，未推送 acceptance tag，未執行 live signing／notarization，也未建立 draft 或公開 GitHub Release。這是本 change 已確認的完成邊界，不是待補的發佈工作。
 
 Rollback／withdrawal 狀態：目前沒有公開過任何 release，rollback 只需還原 workflow 與文件，不影響 runtime 資料。日後若已公開的 release 需要撤回，維護者把該 release 轉回 draft、保留 tag 與事件記錄，修正版本改用新的 patch tag；workflow 不會自動刪 tag、覆寫 asset 或重指歷史 release。
-
-- 建立 Developer ID Application signing、Apple notarization 與 stapling 流程，並以 `codesign`、`spctl`、`stapler` 驗證 `.app` 與 DMG 的 identity、hardened runtime、notarization ticket及同版號一致性。
-- 建立 tag／版本／commit 綁定的 GitHub Actions release workflow，只有驗證、簽章、notarization與既有 regression gates全部通過時才建立 GitHub Release 並上傳 `.dmg`與 SHA-256 checksum。
-- signing certificate、App Store Connect credential與其他 secrets只存在GitHub Environments／Actions secrets或本機 Keychain，不寫入repository、artifact、cache、log、文件範例或前端。
-- 文件明確區分 unsigned personal build與官方 signed／notarized hosted release，提供來源、checksum、Gatekeeper與撤回說明；不得指示停用系統安全檢查。
-- application auto-update、update manifest／public key、runtime release query、Windows／Linux signing、Mac App Store與付費 distribution不在本階段；未來若要加入auto-update，必須另開change定義獨立update trust root與rollback。
-
-完成標準：tagged release的版本與commit可追溯，公開DMG通過Apple簽章／notarization／Gatekeeper驗證且checksum可重算，release workflow不洩漏secrets，Phase 7完整regression與personal-installation contract仍通過。
 
 ## 10. 驗證策略
 
@@ -368,15 +360,8 @@ Rollback／withdrawal 狀態：目前沒有公開過任何 release，rollback �
 
 ## 12. 下一次對話的起點
 
-下一階段是 Phase 8 的 macOS 公開發佈信任鏈，不加入 application auto-update：
-
-1. change 名稱為 `establish-macos-distribution-trust`；先固定tag、version、commit、Bundle ID與Developer ID identity的可驗證關係。
-2. 建立只從受保護GitHub Environment取得secrets的macOS release workflow，依序執行locked regression、bundle build、signing、notarization、stapling、Gatekeeper與checksum檢查。
-3. 只有全部gate通過才建立GitHub Release並上傳DMG與checksum；失敗、取消或重跑不得覆寫既有tag／release，也不得留下未簽或未notarize的公開asset。
-4. 更新公開安裝與驗證文件，區分personal local build與official hosted release，說明checksum、Gatekeeper、已知撤回流程及secrets邊界。
-5. 保留application updater缺席與所有Phase 7 data／workflow contracts；auto-update、其他平台簽章與App Store另開change。
-6. 完整 frontend／Rust／Node contract suites、dependency audits、`npm run check:personal-installation`、`git diff --check`與Spectra analyze／validate全部通過後park；本輪只建立proposal、design、spec與tasks，不直接實作。
+目前沒有已排定的下一階段。AgentDeck 維持 personal-only，現有 release workflow、checks 與文件保持未啟用。
 
 ## 13. 尚待使用者決定
 
-目前無。Phase 8範圍固定為`establish-macos-distribution-trust`的macOS Developer ID signing、notarization、Gatekeeper、checksum與staged GitHub Release；application auto-update、Windows／Linux公開artifact、Mac App Store與付費distribution另開change。
+目前無。AgentDeck 維持 personal-only，沒有待決的公開發佈範圍。
