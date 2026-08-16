@@ -12,6 +12,15 @@ const RUNTIME_FILES = [
   "src/components/Sidebar.tsx",
 ];
 
+/// Surfaces that may describe the official signed release — its tag, its
+/// Developer ID signature, its notarization — but must never turn that hosting
+/// into an update feed the application itself could consume.
+const DISTRIBUTION_FILES = [
+  "README.md",
+  "docs/macos-distribution.md",
+  ".github/workflows/release.yml",
+];
+
 const RULES = [
   {
     id: "upstream-release-query",
@@ -72,6 +81,31 @@ const RULES = [
     id: "rust-updater-dependency",
     paths: ["src-tauri/Cargo.toml", "src-tauri/Cargo.lock"],
     pattern: /tauri-plugin-updater/,
+  },
+  {
+    id: "distribution-update-manifest",
+    paths: DISTRIBUTION_FILES,
+    pattern: /latest\.json/,
+  },
+  {
+    id: "distribution-update-signature",
+    paths: DISTRIBUTION_FILES,
+    pattern: /\.sig\b/,
+  },
+  {
+    id: "distribution-update-archive",
+    paths: DISTRIBUTION_FILES,
+    pattern: /\.app\.tar\.gz/,
+  },
+  {
+    id: "distribution-updater-download",
+    paths: DISTRIBUTION_FILES,
+    pattern: /releases\/latest\/download/,
+  },
+  {
+    id: "distribution-updater-key",
+    paths: DISTRIBUTION_FILES,
+    pattern: /TAURI_SIGNING|"pubkey"\s*:/,
   },
 ];
 

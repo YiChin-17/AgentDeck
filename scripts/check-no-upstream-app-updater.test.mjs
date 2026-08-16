@@ -110,20 +110,39 @@ test("upstream provenance remains separate from runtime update trust", () => {
 
 test("the personal installation guide claims no upstream release trust", () => {
   const readme = read("README.md");
+  // Scoped to the personal-installation section: the same README now also
+  // documents the official signed release, where Developer ID and notarization
+  // language is accurate. The bundle a reader builds here is unsigned and
+  // unnotarized, so that language would transfer a trust chain the local build
+  // does not have.
+  const start = readme.search(/^##\s+Personal installation/m);
+  assert.notEqual(start, -1);
+  const rest = readme.slice(start);
+  const end = rest.indexOf("\n## ", 1);
+  const section = end === -1 ? rest : rest.slice(0, end);
 
-  // The bundle a reader builds here is unsigned and unnotarized. Describing it
-  // with upstream release language would transfer a trust chain this project
-  // does not have, and telling the reader to strip quarantine attributes or
-  // turn off Gatekeeper would ask them to pay for that gap with their own
-  // system security.
-  assert.doesNotMatch(readme, /signed with an Apple Developer ID/);
-  assert.doesNotMatch(readme, /notarized by Apple/);
+  assert.doesNotMatch(section, /signed with an Apple Developer ID/);
+  assert.doesNotMatch(section, /notarized by Apple/);
+  // Telling any reader to strip quarantine attributes or turn off Gatekeeper
+  // would ask them to pay for a trust gap with their own system security, so
+  // this stays a whole-document rule.
   assert.doesNotMatch(readme, /xattr -cr/);
   assert.doesNotMatch(readme, /spctl --master-disable/);
 
-  assert.match(readme, /personal local build|personal installation/i);
-  assert.match(readme, /no application auto-update/i);
-  assert.match(readme, /no notarization guarantee/i);
+  assert.match(section, /personal local build|personal installation/i);
+  assert.match(section, /no application auto-update/i);
+  assert.match(section, /no notarization guarantee/i);
+});
+
+test("official distribution documentation may describe the signed release", () => {
+  const guide = read("docs/macos-distribution.md");
+
+  assert.match(guide, /GitHub Release/i);
+  assert.match(guide, /Developer ID Application/);
+  assert.match(guide, /notariz/i);
+  // Hosting a signed download is not an update feed: nothing here may point the
+  // application at a manifest, a signature or an archive it could install.
+  assert.doesNotMatch(guide, /latest\.json|\.sig\b|\.app\.tar\.gz|releases\/latest\/download/);
 });
 
 test("Phase 7 documents personal installation without app auto-update", () => {
@@ -196,6 +215,24 @@ const violationFixtures = [
     source: "await update.downloadAndInstall();",
     pattern: "frontend-updater-install-flow",
   },
+  {
+    name: "documented update manifest",
+    file: "docs/macos-distribution.md",
+    source: "Point the app at https://example.test/latest.json for updates.",
+    pattern: "distribution-update-manifest",
+  },
+  {
+    name: "documented updater archive",
+    file: "README.md",
+    source: "Download AgentDeck_1.31.0_aarch64.app.tar.gz to update in place.",
+    pattern: "distribution-update-archive",
+  },
+  {
+    name: "release workflow updater key",
+    file: ".github/workflows/release.yml",
+    source: "  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
+    pattern: "distribution-updater-key",
+  },
 ];
 
 for (const fixture of violationFixtures) {
@@ -208,6 +245,15 @@ for (const fixture of violationFixtures) {
     assert.match(output, new RegExp(fixture.pattern));
   });
 }
+
+test("official release documentation fixture passes", () => {
+  const result = runFixture({
+    "docs/macos-distribution.md":
+      "Every GitHub Release asset is signed with a Developer ID Application certificate and notarized by Apple.",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+});
 
 test("attribution fixture passes because documents are outside runtime surfaces", () => {
   const result = runFixture({

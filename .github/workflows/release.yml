@@ -6,41 +6,163 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Read-only by default. Only the final publish job is allowed to write a
+# release, so no build leg can make anything public on its own.
 permissions:
-  contents: write
+  contents: read
+
+env:
+  EXPECTED_BUNDLE_ID: io.github.yichin17.agentdeck
+  # Fixed runner-local names for the ephemeral credential material. Both the
+  # import step and the always() cleanup derive their paths from these, so
+  # cleanup can still find and delete the keychain when import or identity
+  # validation failed before any value could be exported.
+  EPHEMERAL_KEYCHAIN: agentdeck-release.keychain-db
+  EPHEMERAL_KEY_DIR: private_keys
+  EPHEMERAL_CERTIFICATE: certificate.p12
 
 jobs:
+  # Runs on every trigger, including workflow_dispatch, which is therefore a
+  # non-publishing dry run: it proves the committed pipeline still fails closed
+  # without needing any Apple credential.
+  contract:
+    name: Distribution contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check the committed distribution contract
+        run: npm run check:macos-distribution
+
+      - name: Check the product identity
+        run: npm run check:product-identity
+
+      - name: Check that no application updater surface returned
+        run: npm run check:no-app-updater
+
+  # A Developer ID signature proves who produced the artifact, not that the
+  # artifact works. Publication therefore also waits on the Phase 7 gates that
+  # decide whether this commit is releasable at all. No credential is available
+  # here, so the bundle it builds is an ordinary unsigned personal build.
+  regression:
+    name: Phase 7 regressions
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-14
+    permissions:
+      contents: read
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          save-if: false
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend production build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Locale integrity
+        run: npm run check:i18n
+
+      - name: Repository Node contracts
+        run: node --test scripts/*.test.mjs
+
+      - name: Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      # The personal-installation contract reads the default bundle path, so it
+      # needs its own unsigned build rather than one of the signed per-target
+      # builds above.
+      - name: Build the personal installation bundle
+        run: npm run tauri:build
+
+      - name: Personal installation contract
+        run: npm run check:personal-installation
+
   build:
+    name: Build macOS (${{ matrix.arch }})
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-14
+    # Apple credentials exist only inside this protected environment, so no
+    # other job and no manual run outside it can reach them.
+    environment: macos-release
+    permissions:
+      contents: read
+    # Apple's notary service can leave a submission "In Progress" indefinitely
+    # and v1.29.0 burned the full 6-hour GitHub limit on both macOS legs. An
+    # hour caps a hang while leaving real headroom for a healthy build.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - arch: arm64
             target: aarch64-apple-darwin
-            label: macOS-arm64
-          - platform: macos-latest
+            dmg_arch: aarch64
+          - arch: x86_64
             target: x86_64-apple-darwin
-            label: macOS-x64
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            label: Linux-x64
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: Windows-x64
-
-    runs-on: ${{ matrix.platform }}
-    name: Build (${{ matrix.label }})
-    # Apple's notary service can leave a submission "In Progress" indefinitely and
-    # `notarytool submit --wait` has no timeout of its own, so v1.29.0 burned the
-    # full 6-hour GitHub limit on both macOS legs. The slowest healthy build so far
-    # is Windows at ~17 minutes, so an hour caps a hang while leaving real headroom.
-    timeout-minutes: 60
+            dmg_arch: x64
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+
+      - name: Verify tag, committed versions, and branch history
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Refusing a ref that is not a release tag: $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAURI_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ] || [ "$TAG_VERSION" != "$TAURI_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json ($PKG_VERSION) or src-tauri/tauri.conf.json ($TAURI_VERSION)" >&2
+            exit 1
+          fi
+          # A tag can point anywhere. Only a commit contained in protected main
+          # history may become an official release.
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Tag commit $GITHUB_SHA is not contained in protected main history" >&2
+            exit 1
+          fi
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -57,318 +179,365 @@ jobs:
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: src-tauri
-          # Restore-only: the post-build cache *save* on Windows intermittently
-          # fails (a lingering vctip.exe locks files in target/ while tar/zstd
-          # packs the cache), marking an otherwise-successful release job red.
-          # Release builds run rarely, so skipping the save avoids the false
-          # failure at negligible cost. See v1.22.3 Windows-x64 run.
           save-if: false
-
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
 
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Windows smoke check
-        if: matrix.platform == 'windows-latest'
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
-      - name: Extract changelog for current version
-        id: changelog
-        shell: bash
+      # Credentials live in a runner-local, throwaway store for the length of
+      # this job only. A missing or mismatched value stops the job here, before
+      # anything is built, so there is no ad-hoc signed artifact to leak.
+      - name: Import Developer ID credentials into an ephemeral keychain
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          set -euo pipefail
+          umask 077
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER \
+                      APPLE_API_KEY APPLE_API_KEY_BASE64 APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing macos-release environment value: $name" >&2
+              exit 1
+            fi
+          done
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/$EPHEMERAL_KEYCHAIN"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          CERT_PATH="$RUNNER_TEMP/$EPHEMERAL_CERTIFICATE"
+          KEY_DIR="$RUNNER_TEMP/$EPHEMERAL_KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_$APPLE_API_KEY.p8"
+
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          if ! grep -q 'BEGIN PRIVATE KEY' "$KEY_PATH"; then
+            echo "Invalid macos-release environment value: APPLE_API_KEY_BASE64" >&2
+            exit 1
+          fi
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          chmod 600 "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          if ! security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security >/dev/null 2>&1; then
+            echo "Invalid macos-release environment value: APPLE_CERTIFICATE or APPLE_CERTIFICATE_PASSWORD" >&2
+            exit 1
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f "$CERT_PATH"
+
+          # A structurally valid certificate from another team would still
+          # produce a signature Gatekeeper accepts for somebody else's product,
+          # so the identity has to match the release team explicitly.
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep 'Developer ID Application' | grep "($APPLE_TEAM_ID)" | head -n1 \
+            | sed -E 's/^[[:space:]]*[0-9]+\)[[:space:]]+[0-9A-F]+[[:space:]]+"(.*)"$/\1/')"
+          if [ -z "$IDENTITY" ]; then
+            echo "The imported certificate has no Developer ID Application identity for the expected team" >&2
+            exit 1
+          fi
+          echo "::add-mask::$IDENTITY"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
+            echo "APPLE_API_KEY_PATH=$KEY_PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Build signed and notarized bundles
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: npm run tauri:build -- --target ${{ matrix.target }} --bundles app,dmg
+
+      # The bundler notarizes and staples the application, but past release runs
+      # showed the disk image itself leaving the bundler without a ticket, so it
+      # is submitted and stapled here.
+      - name: Notarize and staple the disk image
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          DMG_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/dmg/AgentDeck_${VERSION}_${{ matrix.dmg_arch }}.dmg"
+          if [ ! -f "$DMG_PATH" ]; then
+            echo "The build produced no disk image at $DMG_PATH" >&2
+            exit 1
+          fi
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 30m
+          xcrun stapler staple "$DMG_PATH"
+
+      # Each check answers a different question, and a missing one leaves a real
+      # hole: a valid signature from another team, an unstapled ticket, or a
+      # disk image whose contents were never opened and inspected.
+      - name: Verify Developer ID signing, notarization, and Gatekeeper
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          APP_PATH="$BUNDLE_DIR/macos/AgentDeck.app"
+          DMG_PATH="$BUNDLE_DIR/dmg/AgentDeck_${VERSION}_${{ matrix.dmg_arch }}.dmg"
+
+          verify_app() {
+            label="$1"
+            app="$2"
+            echo "=== Verifying $label: $app ==="
+            if [ ! -d "$app" ]; then
+              echo "$label is missing at $app" >&2
+              return 1
+            fi
+            bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+            app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+            if [ "$bundle_id" != "$EXPECTED_BUNDLE_ID" ]; then
+              echo "$label reports Bundle ID $bundle_id" >&2
+              return 1
+            fi
+            if [ "$app_version" != "$VERSION" ]; then
+              echo "$label reports version $app_version, expected $VERSION" >&2
+              return 1
+            fi
+            codesign --verify --deep --strict --verbose=2 "$app"
+            # Captured once: piping into grep lets grep exit first, and the
+            # SIGPIPE it sends codesign surfaces as a spurious pipeline failure.
+            sig_info="$(codesign -dvvv "$app" 2>&1)"
+            grep -q 'Authority=Developer ID Application:' <<<"$sig_info" || {
+              echo "$label is not signed with a Developer ID Application certificate" >&2
+              return 1
+            }
+            grep -q "TeamIdentifier=$APPLE_TEAM_ID" <<<"$sig_info" || {
+              echo "$label carries an unexpected TeamIdentifier" >&2
+              return 1
+            }
+            grep -q 'Timestamp=' <<<"$sig_info" || {
+              echo "$label has no secure timestamp" >&2
+              return 1
+            }
+            grep -qE 'flags=[^)]*runtime' <<<"$sig_info" || {
+              echo "$label does not enable the hardened runtime" >&2
+              return 1
+            }
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=4 "$app"
+          }
+
+          verify_app "built bundle" "$APP_PATH"
+
+          # The disk image is what a user actually downloads, so its own ticket
+          # and its contents are verified rather than assumed from the build
+          # directory.
+          xcrun stapler validate "$DMG_PATH"
+          MOUNT_POINT="$(mktemp -d)"
+          hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
+          APP_COUNT="$(find "$MOUNT_POINT" -maxdepth 1 -name '*.app' | wc -l | tr -d ' ')"
+          MOUNTED_APP="$(find "$MOUNT_POINT" -maxdepth 1 -name '*.app' | head -n1)"
+          if [ "$APP_COUNT" != "1" ] || [ "$(basename "$MOUNTED_APP")" != "AgentDeck.app" ]; then
+            echo "The disk image must contain exactly one application named AgentDeck.app" >&2
+            hdiutil detach "$MOUNT_POINT" -quiet || true
+            exit 1
+          fi
+          verify_app "disk image bundle" "$MOUNTED_APP" || {
+            hdiutil detach "$MOUNT_POINT" -quiet || true
+            exit 1
+          }
+          hdiutil detach "$MOUNT_POINT" -quiet
+
+      - name: Generate the SHA-256 checksum
+        run: |
+          set -euo pipefail
+          DMG_NAME="AgentDeck_${VERSION}_${{ matrix.dmg_arch }}.dmg"
+          mkdir -p dist/release
+          cp "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/$DMG_NAME" "dist/release/$DMG_NAME"
+          cd dist/release
+          shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
+          shasum -a 256 -c "$DMG_NAME.sha256"
+
+      - name: Upload the verified artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agentdeck-macos-${{ matrix.arch }}
+          path: |
+            dist/release/AgentDeck_*.dmg
+            dist/release/AgentDeck_*.dmg.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove the ephemeral credentials
+        if: always()
+        run: |
+          security list-keychains -d user -s login.keychain-db || true
+          security delete-keychain "$RUNNER_TEMP/$EPHEMERAL_KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/$EPHEMERAL_CERTIFICATE"
+          rm -rf "$RUNNER_TEMP/$EPHEMERAL_KEY_DIR"
+
+  publish:
+    name: Publish release
+    needs: [contract, regression, build]
+    # A manual run can never reach this job, so workflow_dispatch stays a dry run.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Download the verified artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist/incoming
+
+      - name: Verify the complete artifact set
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/release
+          find dist/incoming -type f -name 'AgentDeck_*' -exec cp {} dist/release/ \;
+          cd dist/release
+          for name in "AgentDeck_${VERSION}_aarch64.dmg" "AgentDeck_${VERSION}_x64.dmg"; do
+            if [ ! -f "$name" ] || [ ! -f "$name.sha256" ]; then
+              echo "Missing release asset or checksum for $name" >&2
+              exit 1
+            fi
+            shasum -a 256 -c "$name.sha256"
+          done
+          # Exactly two disk images and their two checksums. Anything else — a
+          # missing architecture, a duplicate, or an application updater
+          # artifact — stops the release here.
+          ASSET_COUNT="$(find . -type f | wc -l | tr -d ' ')"
+          if [ "$ASSET_COUNT" -ne 4 ]; then
+            echo "Expected exactly 4 release assets, found $ASSET_COUNT" >&2
+            find . -type f >&2
+            exit 1
+          fi
+
+      - name: Compose the release notes
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
           BODY_EN=$(sed -n "/^## \[${VERSION}\]/,/^## \[/{ /^## \[${VERSION}\]/d; /^## \[/d; p; }" CHANGELOG.md | awk -f scripts/strip-empty-sections.awk)
           BODY_ZH=$(sed -n "/^## \[${VERSION}\]/,/^## \[/{ /^## \[${VERSION}\]/d; /^## \[/d; p; }" CHANGELOG-zh.md | awk -f scripts/strip-empty-sections.awk)
-          # Release date: prefer the date on the CHANGELOG heading; fall back to today.
           RELEASE_DATE=$(grep -m1 "^## \[${VERSION}\] - " CHANGELOG.md | sed -E "s/^## \[${VERSION}\] - ([0-9-]+).*/\1/")
           if [ -z "$RELEASE_DATE" ]; then RELEASE_DATE=$(date -u +%Y-%m-%d); fi
-          # Previous tag for the commit range (skip the current tag itself).
-          PREV_TAG=$(git tag --sort=-v:refname --merged "${{ github.ref_name }}" | grep -v "^${{ github.ref_name }}$" | head -n1)
+          PREV_TAG=$(git tag --sort=-v:refname --merged "$GITHUB_REF_NAME" | grep -v "^$GITHUB_REF_NAME$" | head -n1)
           if [ -n "$PREV_TAG" ]; then
-            COMPARE_URL="https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}"
-            RANGE_LINE="递交范围：[\`${PREV_TAG}...${{ github.ref_name }}\`](${COMPARE_URL})"
-            RANGE_LINE_EN="Commit range: [\`${PREV_TAG}...${{ github.ref_name }}\`](${COMPARE_URL})"
-            FULL_LINE="**完整变更**：[\`${PREV_TAG}...${{ github.ref_name }}\`](${COMPARE_URL})"
+            FULL_LINE="**完整变更**：[\`${PREV_TAG}...${GITHUB_REF_NAME}\`](https://github.com/${REPO}/compare/${PREV_TAG}...${GITHUB_REF_NAME})"
           else
-            RANGE_LINE="递交范围：首个发布版本"
-            RANGE_LINE_EN="Commit range: initial release"
             FULL_LINE="**完整变更**：首个发布版本"
           fi
           {
-            echo "body<<EOF"
-            echo "## Skills Manager ${{ github.ref_name }}"
+            echo "## AgentDeck ${GITHUB_REF_NAME}"
             echo ""
             echo "发布日期：\`${RELEASE_DATE}\`"
-            echo "${RANGE_LINE}"
             echo ""
             echo "$BODY_ZH"
             echo ""
-            echo "### 当前校验状态"
+            echo "### 下载与校验"
             echo ""
-            echo "- ✅ 跨平台构建通过（macOS Intel / macOS ARM / Windows x64 / Linux x64）"
-            echo "- ✅ TypeScript typecheck 通过"
+            echo "- Apple silicon：\`AgentDeck_${VERSION}_aarch64.dmg\`"
+            echo "- Intel：\`AgentDeck_${VERSION}_x64.dmg\`"
+            echo "- 每个磁盘映像都附带同名 \`.sha256\` 文件；下载后用 \`shasum -a 256\` 重算并比对。"
+            echo "- 磁盘映像与其中的应用均以 Developer ID Application 证书签名、经 Apple 公证并装订票据。"
+            echo "- 本应用没有自动更新，新版本需手动下载。"
             echo ""
             echo "---"
             echo ""
             echo "<details><summary>English release notes</summary>"
             echo ""
             echo "Release date: \`${RELEASE_DATE}\`"
-            echo "${RANGE_LINE_EN}"
             echo ""
             echo "$BODY_EN"
             echo ""
-            echo "### Current Verification"
-            echo ""
-            echo "- ✅ Cross-platform build passed (macOS Intel / macOS ARM / Windows x64 / Linux x64)"
-            echo "- ✅ TypeScript typecheck passed"
-            echo ""
             echo "</details>"
             echo ""
-            echo "---"
-            echo ""
             echo "${FULL_LINE}"
-            echo ""
-            echo "Full changelog files: [English](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) | [中文](https://github.com/${{ github.repository }}/blob/main/CHANGELOG-zh.md)"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          } > "$RUNNER_TEMP/release-notes.md"
 
-      # A missing secret must break the build loudly: tauri-action would otherwise
-      # fall back to a linker-only signature that has no sealed resources and fails
-      # `codesign --verify` (issue #138). The notarization key is delivered as
-      # base64 because Tauri wants a path to the .p8, not its contents.
-      - name: Prepare macOS signing credentials
-        if: startsWith(matrix.platform, 'macos')
+      - name: Stage the release draft
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
-        run: |
-          set -euo pipefail
-          fail=0
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
-                      APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_BASE64; do
-            value=${!name:-}
-            if [ -z "$value" ]; then
-              echo "Missing repository secret: $name" >&2
-              fail=1
-            fi
-          done
-          if [ "$fail" -ne 0 ]; then
-            echo "macOS releases require Developer ID signing + notarization credentials." >&2
-            exit 1
-          fi
-          KEY_DIR="$RUNNER_TEMP/private_keys"
-          KEY_PATH="$KEY_DIR/AuthKey_${APPLE_API_KEY}.p8"
-          mkdir -p "$KEY_DIR"
-          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
-          chmod 600 "$KEY_PATH"
-          if ! grep -q 'BEGIN PRIVATE KEY' "$KEY_PATH"; then
-            echo "APPLE_API_KEY_BASE64 did not decode to a PEM private key" >&2
-            exit 1
-          fi
-          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-
-      - name: Build with Tauri
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Sign macOS bundles with the Developer ID Application certificate and
-          # notarize them with Apple, so a downloaded build opens without any
-          # Gatekeeper prompt. Signing alone is not enough: macOS 10.15+ blocks
-          # quarantined apps that carry no notarization ticket.
-          # APPLE_API_KEY_PATH comes from the previous step via $GITHUB_ENV, and is
-          # only set on macOS runners.
-          APPLE_CERTIFICATE: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_API_KEY || '' }}
-        with:
-          tagName: v__VERSION__
-          releaseName: 'Skills Manager v__VERSION__'
-          releaseBody: ${{ steps.changelog.outputs.body }}
-          # Publish only after every platform is verified. v1.29.0 shipped with
-          # Windows and Linux assets while both macOS legs were still notarizing,
-          # because assets go public the moment each leg finishes. tauri-action
-          # looks a draft up by listing releases, so concurrent matrix legs still
-          # converge on one draft rather than creating four.
-          releaseDraft: true
-          prerelease: false
-          updaterJsonKeepUniversal: true
-          args: --target ${{ matrix.target }}
-
-      - name: Verify macOS signature and notarization
-        if: startsWith(matrix.platform, 'macos')
-        run: |
-          set -euo pipefail
-          verify_bundle() {
-            local label="$1" app="$2"
-            echo "=== Verifying $label: $app ==="
-            if [ ! -d "$app" ]; then
-              echo "Expected app bundle not found at $app" >&2
-              return 1
-            fi
-            codesign --verify --deep --strict --verbose=2 "$app"
-            # Capture once and match against the string: piping into `grep -q` lets
-            # grep exit first, and the SIGPIPE it sends codesign would surface as a
-            # spurious pipeline failure under `set -o pipefail`.
-            local sig_info
-            sig_info="$(codesign -dvvv "$app" 2>&1)"
-            grep -E 'Authority|Signature|Sealed Resources|Identifier|Timestamp' <<<"$sig_info"
-            # An unexpected fallback identity still yields a structurally valid
-            # signature, so assert the one Gatekeeper actually accepts.
-            grep -q 'Authority=Developer ID Application:' <<<"$sig_info" || {
-              echo "$label is not signed with a Developer ID Application certificate" >&2
-              return 1
-            }
-            # Notarization is rejected without the hardened runtime, so assert the flag
-            # rather than discovering it from a failed submission log.
-            grep -qE 'flags=[^)]*runtime' <<<"$sig_info" || {
-              echo "Hardened runtime is not enabled on $label" >&2
-              return 1
-            }
-            # The stapled ticket is what lets Gatekeeper approve a downloaded copy
-            # offline; spctl is the same check macOS performs on first launch.
-            xcrun stapler validate "$app"
-            spctl --assess --type execute --verbose=4 "$app"
-          }
-
-          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
-          verify_bundle "built bundle" "$BUNDLE_DIR/skills-manager.app"
-
-          # The .app.tar.gz — not the .app or the .dmg — is what the in-app
-          # updater downloads and unpacks over the running install, so it is the
-          # artifact whose signature and stapled ticket actually decide whether
-          # an updated copy still launches. Verifying only the build directory
-          # would not catch an archive that lost either one.
-          TAR_PATH="$(find "$BUNDLE_DIR" -maxdepth 1 -name '*.app.tar.gz' | head -1)"
-          if [ -z "$TAR_PATH" ]; then
-            echo "No updater archive (*.app.tar.gz) was produced" >&2
-            exit 1
-          fi
-          EXTRACT_DIR="$(mktemp -d)"
-          tar -xzf "$TAR_PATH" -C "$EXTRACT_DIR"
-          EXTRACTED_APP="$(find "$EXTRACT_DIR" -maxdepth 1 -name '*.app' | head -1)"
-          if [ -z "$EXTRACTED_APP" ]; then
-            echo "No .app found inside $TAR_PATH" >&2
-            exit 1
-          fi
-          verify_bundle "updater archive ($(basename "$TAR_PATH"))" "$EXTRACTED_APP"
-          rm -rf "$EXTRACT_DIR"
-
-          # `|| true`: with pipefail a missing dmg directory would abort the step
-          # with a bare exit 1 and no diagnostic.
-          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
-          DMG_PATH="$(find "$DMG_DIR" -maxdepth 1 -name '*.dmg' 2>/dev/null | head -1 || true)"
-          if [ -n "$DMG_PATH" ]; then
-            echo "Checking $DMG_PATH (informational: the .app inside carries its own ticket)"
-            xcrun stapler validate "$DMG_PATH" || echo "Note: .dmg itself is not stapled"
-          fi
-
-  verify-updater-assets:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    name: Verify updater assets
-    steps:
-      - name: Validate updater metadata and signatures
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-
-          # The release is still a draft at this point, and /releases/tags/{tag}
-          # returns 404 for drafts, so it has to be located by listing.
-          releases_json=$(curl -fsSL \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${REPO}/releases?per_page=100")
-
-          release_json=$(echo "$releases_json" | jq --arg t "$TAG" '.[] | select(.tag_name == $t)')
-          if [ -z "$release_json" ]; then
-            echo "No release found for tag ${TAG}" >&2
+          # A tag is released once. An existing release for it is a signal that
+          # something already happened, never something to overwrite.
+          if gh release view "$GITHUB_REF_NAME" --repo "$REPO" >/dev/null 2>&1; then
+            echo "A release already exists for $GITHUB_REF_NAME; prepare a new patch version instead" >&2
             exit 1
           fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$REPO" \
+            --target "${{ github.sha }}" \
+            --title "AgentDeck $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --draft \
+            dist/release/*
 
-          asset_names=$(echo "$release_json" | jq -r '.assets[]?.name')
-          echo "Assets on the draft release:"
-          echo "$asset_names" | sed 's/^/  /'
-
-          if ! echo "$asset_names" | grep -qx 'latest.json'; then
-            echo "Missing updater metadata asset: latest.json" >&2
+      - name: Verify the staged draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release view "$GITHUB_REF_NAME" --repo "$REPO" \
+            --json isDraft,tagName,targetCommitish,assets > "$RUNNER_TEMP/draft.json"
+          if [ "$(jq -r '.isDraft' "$RUNNER_TEMP/draft.json")" != "true" ]; then
+            echo "The staged release is already public" >&2
             exit 1
           fi
-
-          if ! echo "$asset_names" | grep -q '\.sig'; then
-            echo "Missing updater signature assets (*.sig)" >&2
+          if [ "$(jq -r '.targetCommitish' "$RUNNER_TEMP/draft.json")" != "${{ github.sha }}" ]; then
+            echo "The staged release points at another commit" >&2
             exit 1
           fi
-
-          # Draft assets are not served from the public download host, so fetch
-          # latest.json through the authenticated asset endpoint.
-          asset_id=$(echo "$release_json" | jq -r '.assets[] | select(.name == "latest.json") | .id')
-          curl -fsSL \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/octet-stream" \
-            "https://api.github.com/repos/${REPO}/releases/assets/${asset_id}" -o /tmp/latest.json
-
-          # v1.29.0 published with no darwin entries at all because only Windows
-          # and Linux were asserted here, so every shipped platform is checked now.
-          fail=0
-          for platform in darwin-aarch64 darwin-x86_64 windows-x86_64 linux-x86_64; do
-            if ! jq -e --arg p "$platform" '.platforms[$p].signature and .platforms[$p].url' /tmp/latest.json >/dev/null; then
-              echo "latest.json is missing a signed updater entry for ${platform}" >&2
-              fail=1
-            fi
+          ACTUAL="$(jq -r '.assets[].name' "$RUNNER_TEMP/draft.json" | sort | tr '\n' ' ')"
+          EXPECTED="$(printf '%s\n' \
+            "AgentDeck_${VERSION}_aarch64.dmg" \
+            "AgentDeck_${VERSION}_aarch64.dmg.sha256" \
+            "AgentDeck_${VERSION}_x64.dmg" \
+            "AgentDeck_${VERSION}_x64.dmg.sha256" | sort | tr '\n' ' ')"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "The staged asset set is $ACTUAL, expected $EXPECTED" >&2
+            exit 1
+          fi
+          # Re-download what a user would get and re-check the digests, so the
+          # published checksums describe the hosted bytes, not the build output.
+          mkdir -p "$RUNNER_TEMP/verify"
+          cd "$RUNNER_TEMP/verify"
+          gh release download "$GITHUB_REF_NAME" --repo "$REPO" --dir .
+          for name in "AgentDeck_${VERSION}_aarch64.dmg" "AgentDeck_${VERSION}_x64.dmg"; do
+            shasum -a 256 -c "$name.sha256"
           done
 
-          # A macOS leg that dies during notarization still leaves the release
-          # looking plausible, so require its user-facing artifacts too.
-          for pattern in '\.dmg$' '\.app\.tar\.gz$'; do
-            if ! echo "$asset_names" | grep -qE "$pattern"; then
-              echo "Missing macOS asset matching ${pattern}" >&2
-              fail=1
-            fi
-          done
-
-          if [ "$fail" -ne 0 ]; then
-            echo "--- latest.json ---" >&2
-            cat /tmp/latest.json >&2
-            exit 1
-          fi
-
-          echo "Updater assets validation passed"
-
-  publish-release:
-    needs: [build, verify-updater-assets]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    name: Publish release
-    steps:
-      # Every platform built, signed, notarized and verified by this point, so
-      # this is the step that actually makes the release visible to users.
       - name: Publish the verified draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh release edit "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --draft=false
-          echo "Published ${{ github.ref_name }}"
+          gh release edit "$GITHUB_REF_NAME" --repo "$REPO" --draft=false
+          echo "Published $GITHUB_REF_NAME"

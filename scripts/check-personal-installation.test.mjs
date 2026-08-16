@@ -283,7 +283,34 @@ test("documentation missing a required topic reports documentation_incomplete", 
 
 test("documentation claiming upstream signing trust reports documentation_incomplete", () => {
   const codes = codesFor((files) => {
-    files["README.md"] = `${COMPLETE_README}\nThis build is signed with an Apple Developer ID certificate and notarized by Apple.\n`;
+    files["README.md"] = COMPLETE_README.replace(
+      "### No application auto-update",
+      "This build is signed with an Apple Developer ID certificate and notarized by Apple.\n\n### No application auto-update",
+    );
+  });
+
+  assert.deepEqual(codes, ["documentation_incomplete"]);
+});
+
+test("an official release section may describe signing outside the personal section", () => {
+  const codes = codesFor((files) => {
+    files["README.md"] = `${COMPLETE_README}
+## Official macOS release
+
+Every published disk image is signed with an Apple Developer ID certificate and
+notarized by Apple. See docs/macos-distribution.md for the verification steps.
+`;
+  });
+
+  assert.deepEqual(codes, []);
+});
+
+test("a README without a personal installation section reports documentation_incomplete", () => {
+  const codes = codesFor((files) => {
+    files["README.md"] = COMPLETE_README.replace(
+      "## Personal installation (local build)",
+      "## Getting started",
+    );
   });
 
   assert.deepEqual(codes, ["documentation_incomplete"]);

@@ -11,6 +11,7 @@
     "check:board-layout": "node scripts/check-board-layout.mjs",
     "check:config-profiles-ui": "node scripts/check-config-profiles-ui.mjs",
     "check:i18n": "node scripts/check-i18n-locales.mjs",
+    "check:macos-distribution": "node scripts/check-macos-distribution.mjs",
     "check:hooks-ui": "node scripts/check-hooks-ui.mjs",
     "check:no-app-updater": "node scripts/check-no-upstream-app-updater.mjs",
     "check:personal-installation": "node scripts/check-personal-installation.mjs",

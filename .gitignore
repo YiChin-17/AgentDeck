@@ -33,9 +33,11 @@ dist-ssr
 
 .claude
 # The whole directory is local scratch, except the committed Phase 7
-# personal-installation evidence.
+# personal-installation evidence and the official distribution guide, which the
+# repository distribution contract reads and users are pointed at from README.
 docs/*
 !docs/personal-installation-verification.md
+!docs/macos-distribution.md
 reference
 CLAUDE.md
 .loop-log
