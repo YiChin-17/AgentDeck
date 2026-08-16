@@ -316,7 +316,20 @@ Management change 的已完成邊界：
 
 ### Phase 8：macOS 公開發佈信任鏈
 
-目前狀態（2026-08-15）：規劃中。下一個 change 固定為 `establish-macos-distribution-trust`，把 Phase 7 已驗證的本機 bundle 延伸成可由使用者驗證來源的 macOS 公開 release；不改變 Library、Agent workflow 或 runtime update behavior。
+目前狀態（2026-08-16）：repository 端已完成，尚未執行 tagged acceptance run。`establish-macos-distribution-trust` 把 Phase 7 已驗證的本機 bundle 延伸成可由使用者驗證來源的 macOS 公開 release；未改變 Library、Agent workflow 或 runtime update behavior。
+
+已完成的實際結果：
+
+- `.github/workflows/release.yml` 重構為 contract → build（arm64／x86_64）→ publish 三段。top-level 與 build job 維持 `contents: read`，只有依賴全部 gates 的 publish job 具 `contents: write`；`workflow_dispatch` 只會跑 contract 這個非發佈 dry run。
+- Apple credentials 只由受保護的 `macos-release` Environment 提供，匯入 runner 本機的臨時 keychain 與僅屬主可讀的私鑰檔，並以 `if: always()` 清除；缺少、解不開或 team 不符都在 build 前退出。
+- 每個 architecture 驗證 build 出的 `AgentDeck.app` 與唯讀掛載 DMG 內唯一的 app：Bundle ID、版本、Developer ID、TeamIdentifier、timestamp、hardened runtime、stapler 與 Gatekeeper，DMG 本身也驗票據。publish 端只接受兩個 DMG 與兩個 `.sha256`、同一 commit，先驗 draft 再公開，且拒絕覆寫既有 tag／release／asset。
+- 新增 `npm run check:macos-distribution` 與其 fixtures，以 `identity_mismatch`、`tag_version_mismatch`、`release_authority_too_broad`、`release_environment_missing`、`secret_boundary_violation`、`updater_asset_present`、`verification_gate_missing`、`checksum_missing`、`publish_order_invalid`、`documentation_incomplete` 十個穩定 finding 鎖住上述形狀。
+- `docs/macos-distribution.md` 說明官方下載、checksum 重算、簽章／notarization 意義與撤回程序；README 明確分開 personal local build 與官方 signed／notarized release，兩邊都不指示停用 Gatekeeper。
+- 本輪驗收：前端 build、lint、i18n、全部 repository Node contracts（181 tests）、`cargo test --locked`（894 passed）、npm 與 Rust production audits、`npm run check:personal-installation` 全部通過。
+
+未完成：受保護的 `macos-release` Environment 尚未配置 Apple secrets 與 `APPLE_TEAM_ID`，因此尚未以新 tag 執行 acceptance run，也沒有任何公開 release。
+
+Rollback／withdrawal 狀態：目前沒有公開過任何 release，rollback 只需還原 workflow 與文件，不影響 runtime 資料。日後若已公開的 release 需要撤回，維護者把該 release 轉回 draft、保留 tag 與事件記錄，修正版本改用新的 patch tag；workflow 不會自動刪 tag、覆寫 asset 或重指歷史 release。
 
 - 建立 Developer ID Application signing、Apple notarization 與 stapling 流程，並以 `codesign`、`spctl`、`stapler` 驗證 `.app` 與 DMG 的 identity、hardened runtime、notarization ticket及同版號一致性。
 - 建立 tag／版本／commit 綁定的 GitHub Actions release workflow，只有驗證、簽章、notarization與既有 regression gates全部通過時才建立 GitHub Release 並上傳 `.dmg`與 SHA-256 checksum。

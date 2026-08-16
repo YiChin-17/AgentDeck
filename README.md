@@ -257,9 +257,15 @@ npm run tauri:build
 npm run cli:build
 ```
 
+## macOS distribution (not currently active)
+
+**There is currently no public AgentDeck release.** AgentDeck is maintained for its owner's personal use, so nothing is offered for download and the release workflow in this repository is never run against real signing credentials. Installing AgentDeck means building it yourself, as described in the next section.
+
+[docs/macos-distribution.md](docs/macos-distribution.md) is kept as dormant material: it records how a signed disk image would be identified and verified — architecture, SHA-256 checksum, Developer ID signature, notarization, Gatekeeper and withdrawal — if distribution were ever authorized by a separate change.
+
 ## Personal installation (macOS)
 
-AgentDeck is installed by building it yourself. There is no published download: this project ships **no application auto-update**, no public release hosting, no Developer ID signing and **no notarization guarantee**. What you install is a personal local build of the commit you checked out, and every statement below applies to that build only.
+AgentDeck is installed by building it yourself. A personal local build carries **no application auto-update**, no public release hosting, no Developer ID signing and **no notarization guarantee**, and it inherits no signing, notarization or hosting trust from anywhere else. What you install is a personal local build of the commit you checked out, and every statement below applies to that build only.
 
 ### 1. Build from the committed lockfiles
 

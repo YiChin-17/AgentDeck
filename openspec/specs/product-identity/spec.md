@@ -8,7 +8,7 @@ TBD - created by archiving change 'establish-agentdeck-product-identity'. Update
 
 ### Requirement: User-facing desktop identity is AgentDeck
 
-The desktop application SHALL use `AgentDeck` as its product name in bundle metadata, the main window, application menu, tray menu, HTML title, Settings version and diagnostics content, App-owned locale text, and the primary repository overview. These surfaces MUST NOT present `Skills Manager` as the current product name.
+The desktop application and official distribution surfaces SHALL use `AgentDeck` as the current product name. This includes bundle metadata, the main window, application menu, tray menu, HTML title, Settings version and diagnostics content, App-owned locale text, the primary repository overview, release workflow labels, release titles, release notes, DMG filenames, checksum filenames, and hosted release assets. These surfaces MUST NOT present `Skills Manager` as the current product or official release name.
 
 #### Scenario: User launches the desktop application
 
@@ -22,79 +22,32 @@ The desktop application SHALL use `AgentDeck` as its product name in bundle meta
 - **THEN** the version and diagnostic headings identify the App as `AgentDeck`
 - **AND** operational instructions use the AgentDeck product name except where an external integration requires its actual legacy name
 
+#### Scenario: User views an official release
+
+- **WHEN** a user views or downloads a tagged official release
+- **THEN** the workflow, release title, notes, DMG, checksum, and embedded application identify the product as `AgentDeck`
+- **AND** `Skills Manager` appears only in explicit upstream attribution or a preserved external compatibility contract
+
 
 <!-- @trace
-source: establish-agentdeck-product-identity
-updated: 2026-08-12
+source: establish-macos-distribution-trust
+updated: 2026-08-16
 code:
-  - src-tauri/icons/tray/tray-icon-32.png
-  - src-tauri/capabilities/default.json
-  - src-tauri/icons/icon.ico
-  - src-tauri/icons/tray/tray-icon-source.png
-  - src/lib/tauri.ts
-  - scripts/product-identity-metadata.test.mjs
-  - scripts/check-product-identity.test.mjs
-  - src-tauri/icons/StoreLogo.png
-  - src-tauri/icons/tray/tray-icon-24.png
-  - src-tauri/icons/Square71x71Logo.png
-  - src-tauri/icons/tray/tray-icon-color-16.png
-  - src-tauri/icons/Square310x310Logo.png
-  - src-tauri/icons/Square284x284Logo.png
-  - src/i18n/en.json
-  - scripts/build_small_icon.py
-  - scripts/check-legacy-compatibility.test.mjs
-  - src-tauri/src/commands/skills.rs
-  - src-tauri/icons/Square30x30Logo.png
-  - src-tauri/icons/icon-source-small.png
-  - public/icons/32x32.png
-  - src-tauri/icons/Square142x142Logo.png
-  - src-tauri/icons/Square89x89Logo.png
-  - src-tauri/icons/Square44x44Logo.png
-  - src-tauri/icons/tray/tray-icon-color-20.png
-  - src-tauri/icons/tray/tray-icon-color-24.png
-  - src-tauri/icons/tray/tray-icon-color-32.png
-  - src-tauri/icons/icon.icns
-  - src-tauri/src/commands/git_backup.rs
-  - src-tauri/src/commands/settings.rs
-  - assets/icon.png
-  - src-tauri/icons/tray/tray-icon-16.png
-  - src-tauri/src/commands/tools.rs
-  - src-tauri/src/core/app_state.rs
-  - src/components/Sidebar.tsx
-  - index.html
-  - src/i18n/zh-TW.json
-  - src-tauri/icons/64x64.png
-  - src-tauri/icons/32x32.png
-  - src-tauri/icons/128x128.png
-  - scripts/build_tray_icons.py
-  - src/context/AppContext.tsx
-  - scripts/check-no-upstream-app-updater.mjs
-  - src-tauri/src/core/sync_metadata.rs
+  - .github/workflows/release.yml
+  - scripts/prepare-release.test.mjs
   - scripts/check-no-upstream-app-updater.test.mjs
-  - src-tauri/src/commands/scan.rs
-  - src-tauri/icons/tray/tray-icon-20.png
-  - src-tauri/src/core/git_backup.rs
-  - scripts/product-identity-icon.test.mjs
-  - scripts/check-product-identity.mjs
-  - src-tauri/Cargo.toml
-  - plan.md
-  - src-tauri/tauri.conf.json
-  - src-tauri/src/core/git_credentials.rs
-  - src-tauri/icons/icon.png
-  - scripts/product-identity-display.test.mjs
   - README.md
-  - src-tauri/src/core/central_repo.rs
-  - src-tauri/src/lib.rs
+  - .spectra.yaml
+  - plan.md
+  - docs/macos-distribution.md
+  - scripts/check-macos-distribution.mjs
+  - scripts/prepare-release.mjs
   - package.json
-  - src-tauri/icons/128x128@2x.png
-  - src-tauri/src/core/library_availability.rs
-  - src-tauri/icons/icon-source.png
-  - src-tauri/icons/Square107x107Logo.png
-  - src-tauri/src/commands/presets.rs
-  - src/views/Backup.tsx
-  - src/views/Settings.tsx
-  - scripts/build_macos_icon.py
-  - src-tauri/icons/Square150x150Logo.png
+  - scripts/check-personal-installation.mjs
+  - scripts/check-macos-distribution.test.mjs
+  - .github/workflows/prepare-release.yml
+  - scripts/check-personal-installation.test.mjs
+  - scripts/check-no-upstream-app-updater.mjs
 -->
 
 ---

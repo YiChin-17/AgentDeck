@@ -212,35 +212,50 @@ code:
 ---
 ### Requirement: Personal installation is the documented release policy
 
-The project plan and personal installation documentation MUST define AgentDeck as a local personal-installation project without application auto-update. The documentation MUST distinguish a locally generated bundle from an upstream or publicly distributed release and MUST NOT claim public release hosting, distribution signing, notarization, binary update trust, or an application update service. Any public distribution or application update trust MUST require a separate future change before it becomes an implementation or documentation requirement.
+The project plan and personal installation documentation MUST define AgentDeck as a local personal-installation project without application auto-update or a currently active public release channel. The documentation MUST distinguish a locally generated bundle from an upstream or publicly distributed release and MUST NOT claim current public release hosting, distribution signing, notarization, binary update trust, or an application update service. A retained release workflow, distribution checker, or official-distribution draft document MUST be treated as inactive implementation material and MUST NOT authorize public distribution, a runtime release query, an update manifest, an update public key, a binary download, an installation flow, or an application auto-update service. Any future public distribution or application update trust MUST require a separate Spectra change before it becomes a current implementation, live acceptance, or documentation requirement.
 
-#### Scenario: Maintainer reads the stabilization phase
+#### Scenario: Maintainer reads the completed stabilization phase
 
 - **WHEN** a maintainer reads Phase 7 of the project plan
-- **THEN** local build, packaged smoke, stabilization, backup, and uninstall verification remain in scope
-- **AND** public distribution and application auto-update are not listed as current completion criteria
+- **THEN** personal local build, packaged smoke, backup, and uninstall verification remain recorded as completed without public trust claims
+- **AND** those acceptance results remain independently reproducible without release credentials
 
-#### Scenario: User reads the personal installation documentation
+#### Scenario: Maintainer reads the distribution phase
+
+- **WHEN** a maintainer reads Phase 8 of the project plan
+- **THEN** the completed fail-closed workflow and repository checks are recorded as inactive implementation material
+- **AND** release credential configuration, tagged acceptance, and GitHub Release publication are not current completion criteria
+- **AND** application auto-update, update manifests, runtime release queries, and updater signing keys remain out of scope
+
+#### Scenario: User reads personal installation documentation
 
 - **WHEN** a user reads the local build, installation, or troubleshooting instructions
-- **THEN** the documentation identifies the artifact as a personal local build without application auto-update
-- **AND** it does not attribute upstream signing, notarization, hosting, or binary update trust to that artifact
+- **THEN** the documentation identifies the artifact as a personal local build without application auto-update or inherited official trust
 - **AND** it does not instruct the user to disable Gatekeeper or system security checks
 
+#### Scenario: User reads official distribution documentation
+
+- **WHEN** a user encounters retained macOS distribution documentation while AgentDeck remains personal-only
+- **THEN** the documentation does not claim that a current public AgentDeck release exists
+- **AND** it does not claim that the running application checks, downloads, or installs releases
+
 <!-- @trace
-source: stabilize-personal-installation
-updated: 2026-08-15
+source: establish-macos-distribution-trust
+updated: 2026-08-16
 code:
-  - scripts/check-hooks-ui.mjs
-  - scripts/check-personal-installation.mjs
-  - scripts/check-personal-installation.test.mjs
-  - scripts/check-plugins-ui.mjs
-  - docs/personal-installation-verification.md
-  - plan.md
+  - .github/workflows/release.yml
+  - scripts/prepare-release.test.mjs
   - scripts/check-no-upstream-app-updater.test.mjs
-  - scripts/check-ui-command-arguments.test.mjs
-  - src-tauri/src/core/config_profile_inventory.rs
-  - package.json
   - README.md
-  - scripts/frontend-argument-surface.mjs
+  - .spectra.yaml
+  - plan.md
+  - docs/macos-distribution.md
+  - scripts/check-macos-distribution.mjs
+  - scripts/prepare-release.mjs
+  - package.json
+  - scripts/check-personal-installation.mjs
+  - scripts/check-macos-distribution.test.mjs
+  - .github/workflows/prepare-release.yml
+  - scripts/check-personal-installation.test.mjs
+  - scripts/check-no-upstream-app-updater.mjs
 -->

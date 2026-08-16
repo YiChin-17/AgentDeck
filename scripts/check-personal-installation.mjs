@@ -32,19 +32,35 @@ const REQUIRED_DOCUMENTATION = [
   },
 ];
 
-/// Claims and instructions the personal-installation documentation must never
-/// carry: upstream release trust does not transfer to a local build, and no
-/// guide of ours tells a reader to weaken macOS security.
-const FORBIDDEN_DOCUMENTATION = [
+/// Claims the personal-installation section must never carry: release trust does
+/// not transfer to a local build. These are scoped to that section because the
+/// same README also documents the official signed release, where the very same
+/// sentences are true.
+const FORBIDDEN_PERSONAL_CLAIMS = [
   {
     id: "upstream-signing-trust",
     pattern: /signed with an Apple Developer ID|notarized by Apple|公開 release 已簽章/i,
   },
+];
+
+/// No section of ours tells a reader to weaken macOS security, so this one is
+/// checked across the whole document.
+const FORBIDDEN_DOCUMENTATION = [
   {
     id: "gatekeeper-bypass",
     pattern: /xattr -cr|spctl --master-disable|disable Gatekeeper|停用 Gatekeeper/i,
   },
 ];
+
+/// The personal-installation section runs from its own heading to the next
+/// top-level section.
+function personalInstallationSection(readme) {
+  const start = readme.search(/^##\s+Personal installation/m);
+  if (start === -1) return null;
+  const rest = readme.slice(start);
+  const end = rest.indexOf("\n## ", 1);
+  return end === -1 ? rest : rest.slice(0, end);
+}
 
 function readText(rootDir, relativePath) {
   try {
@@ -107,7 +123,13 @@ function checkDocumentation(rootDir, fail) {
     return;
   }
 
-  const missing = REQUIRED_DOCUMENTATION.filter((topic) => !topic.pattern.test(readme));
+  const section = personalInstallationSection(readme);
+  if (section === null) {
+    fail("documentation_incomplete", "README.md", "personal installation section is missing");
+    return;
+  }
+
+  const missing = REQUIRED_DOCUMENTATION.filter((topic) => !topic.pattern.test(section));
   if (missing.length > 0) {
     fail(
       "documentation_incomplete",
@@ -116,7 +138,8 @@ function checkDocumentation(rootDir, fail) {
     );
   }
 
-  const forbidden = FORBIDDEN_DOCUMENTATION.filter((rule) => rule.pattern.test(readme));
+  const claims = FORBIDDEN_PERSONAL_CLAIMS.filter((rule) => rule.pattern.test(section));
+  const forbidden = [...claims, ...FORBIDDEN_DOCUMENTATION.filter((rule) => rule.pattern.test(readme))];
   if (forbidden.length > 0) {
     fail(
       "documentation_incomplete",
