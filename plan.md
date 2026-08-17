@@ -333,6 +333,8 @@ Rollback／withdrawal 狀態：目前沒有公開過任何 release，rollback �
 
 ### Phase 8 之後的維護修正
 
+- `preserve-ssh-git-url-normalization`（2026-08-17）：已完成並封存，由 PR #7 合併到 `main`（merge commit `156c9f2`，PR head `a9d1446`）。對應 Issue #2，讓 `src-tauri/src/core/git_fetcher.rs` 的 `normalize_url` 把通過驗證的 `ssh://` URL 當成完整 URL 原樣傳給 clone layer，不再落入 GitHub HTTPS shorthand 改寫；新增 `ssh://` parsing regression test 並補齊 HTTP、HTTPS、`git@`、shorthand 與 GitHub tree cases，確認既有輸出不變。未新增其他 Git URL scheme，未變更 SSH credential、host key 或 clone transport 處理。macOS CI `cargo test` 896 passed／0 failed。
+- 同一個 PR 另含 CI commit `a9d1446`：`.github/workflows/test.yml` 的 matrix 加入 `allow-failure`，Windows test job 的 `Run tests` 改為 `continue-on-error`。Windows 仍會編譯並執行測試，但失敗不再阻擋合併。原因是該 runner 上有 37 個與本次修正無關的既有失敗——路徑斷言把 `"a/b/c"` 一次 join 的結果拿去和逐段 join 比較，以及 Windows 檔案佔用導致的刪除失敗——會擋下每一個 PR。後果是 `cfg(windows)` 路徑目前只有可見度、沒有 CI 把關，要恢復把關必須先把那些測試改成 Windows-aware。
 - `point-settings-links-to-agentdeck`（2026-08-17）：已完成並封存，由 PR #6 合併到 `main`（merge commit `0f37414`，PR head `97e090d`）。對應 Issue #3，把 Settings 的 GitHub repository 與回報問題入口從上游 Skills Manager 改為固定指向 `https://github.com/YiChin-17/AgentDeck`，並在 `scripts/check-product-identity.mjs` 與其測試加入受管 Settings destination rule，阻止上游 URL 再次出現在這兩個 AgentDeck-owned surfaces。這是 Phase 0 產品識別的後續修正，未移除合法 upstream attribution 與歷史相容性字串，未變更 issue template 或診斷資料格式，也未重新設計 Settings 畫面。
 
 ## 10. 驗證策略
@@ -347,11 +349,11 @@ Rollback／withdrawal 狀態：目前沒有公開過任何 release，rollback �
 - 外接 Library 拔除或 unmount 的 offline 測試。
 - 套用、取消與回復流程的人工 GUI 驗證。
 
-目前已驗證的基準結果（2026-08-15）：
+目前已驗證的基準結果：
 
-- 前端 production build 通過。
-- Rust tests：894 passed，0 failed。
-- npm 與 Rust production dependency audits 均為 0 vulnerabilities。
+- 前端 production build 通過（2026-08-15）。
+- Rust tests（macOS CI，2026-08-17）：896 passed，0 failed。Windows job 另有 37 個既有失敗，已設為不阻擋合併，詳見 Phase 8 之後的維護修正。
+- npm 與 Rust production dependency audits 均為 0 vulnerabilities（2026-08-15）。
 
 ## 11. 已知風險
 
