@@ -1,6 +1,6 @@
 # AgentDeck 開發計畫
 
-最後更新：2026-08-16
+最後更新：2026-08-17
 
 ## 1. 專案摘要
 
@@ -330,6 +330,10 @@ Management change 的已完成邊界：
 目前 personal-only 運作狀態：受保護的 `macos-release` Environment 未配置 Apple secrets 與 `APPLE_TEAM_ID`，未推送 acceptance tag，未執行 live signing／notarization，也未建立 draft 或公開 GitHub Release。這是本 change 已確認的完成邊界，不是待補的發佈工作。
 
 Rollback／withdrawal 狀態：目前沒有公開過任何 release，rollback 只需還原 workflow 與文件，不影響 runtime 資料。日後若已公開的 release 需要撤回，維護者把該 release 轉回 draft、保留 tag 與事件記錄，修正版本改用新的 patch tag；workflow 不會自動刪 tag、覆寫 asset 或重指歷史 release。
+
+### Phase 8 之後的維護修正
+
+- `point-settings-links-to-agentdeck`（2026-08-17）：已完成並封存，由 PR #6 合併到 `main`（merge commit `0f37414`，PR head `97e090d`）。對應 Issue #3，把 Settings 的 GitHub repository 與回報問題入口從上游 Skills Manager 改為固定指向 `https://github.com/YiChin-17/AgentDeck`，並在 `scripts/check-product-identity.mjs` 與其測試加入受管 Settings destination rule，阻止上游 URL 再次出現在這兩個 AgentDeck-owned surfaces。這是 Phase 0 產品識別的後續修正，未移除合法 upstream attribution 與歷史相容性字串，未變更 issue template 或診斷資料格式，也未重新設計 Settings 畫面。
 
 ## 10. 驗證策略
 
