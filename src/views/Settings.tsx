@@ -194,7 +194,7 @@ export function Settings() {
   const [addingCustom, setAddingCustom] = useState(false);
   const [showMoreAgents, setShowMoreAgents] = useState(false);
 
-  const GITHUB_URL = "https://github.com/xingkongliang/skills-manager";
+  const GITHUB_URL = "https://github.com/YiChin-17/AgentDeck";
 
   const startEditPath = useCallback((key: string, currentPath: string) => {
     setEditingPathKey(key);
