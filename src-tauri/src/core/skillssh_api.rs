@@ -37,23 +37,29 @@ impl LeaderboardType {
     }
 }
 
-pub fn build_http_client(proxy_url: Option<&str>, timeout_secs: u64) -> reqwest::blocking::Client {
+/// Build the shared blocking client. A configured proxy that cannot be parsed or
+/// applied is a hard error: falling back to a direct client would silently send
+/// traffic outside the proxy the user asked for.
+pub fn build_http_client(
+    proxy_url: Option<&str>,
+    timeout_secs: u64,
+) -> Result<reqwest::blocking::Client> {
     let mut builder = reqwest::blocking::Client::builder()
         .user_agent("skills-manager")
         .timeout(std::time::Duration::from_secs(timeout_secs));
     if let Some(proxy) = proxy_url.filter(|s| !s.is_empty()) {
-        if let Ok(p) = reqwest::Proxy::all(proxy) {
-            builder = builder.proxy(p);
-        }
+        // Context stays fixed — the proxy URL may embed credentials.
+        let p = reqwest::Proxy::all(proxy).context("Invalid proxy configuration")?;
+        builder = builder.proxy(p);
     }
-    builder.build().unwrap_or_default()
+    builder.build().context("Failed to build HTTP client")
 }
 
 pub fn fetch_leaderboard(
     board: LeaderboardType,
     proxy_url: Option<&str>,
 ) -> Result<Vec<SkillsShSkill>> {
-    let client = build_http_client(proxy_url, 15);
+    let client = build_http_client(proxy_url, 15)?;
 
     let html = client
         .get(board.url())
@@ -219,7 +225,7 @@ pub fn search_skills(
     limit: usize,
     proxy_url: Option<&str>,
 ) -> Result<Vec<SkillsShSkill>> {
-    let client = build_http_client(proxy_url, 15);
+    let client = build_http_client(proxy_url, 15)?;
 
     let url = format!(
         "https://skills.sh/api/search?q={}&limit={}",
@@ -247,7 +253,48 @@ pub fn search_skills(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_embedded_skill_objects, parse_next_data};
+    use super::{build_http_client, parse_embedded_skill_objects, parse_next_data};
+
+    #[test]
+    fn malformed_proxy_fails_client_construction() {
+        // Unterminated IPv6 host: rejected by reqwest's URL parse, unlike an unknown
+        // scheme such as `ftp://`, which reqwest accepts.
+        let err = build_http_client(Some("http://user:secret@[::1"), 15)
+            .expect_err("malformed proxy URL must not build a client");
+
+        // The proxy string may carry credentials, so it must never reach the message chain.
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("proxy"),
+            "error should name the proxy stage: {rendered}"
+        );
+        assert!(
+            !rendered.contains("secret") && !rendered.contains("[::1"),
+            "error must not echo the configured proxy URL: {rendered}"
+        );
+    }
+
+    #[test]
+    fn absent_proxy_builds_direct_client() {
+        build_http_client(None, 15).expect("no proxy should build a direct client");
+    }
+
+    #[test]
+    fn empty_proxy_builds_direct_client() {
+        build_http_client(Some(""), 15).expect("empty proxy should build a direct client");
+    }
+
+    #[test]
+    fn supported_proxy_schemes_build_clients() {
+        for proxy in [
+            "http://127.0.0.1:8080",
+            "https://127.0.0.1:8443",
+            "socks5://127.0.0.1:1080",
+        ] {
+            build_http_client(Some(proxy), 15)
+                .unwrap_or_else(|e| panic!("{proxy} should build a client: {e:#}"));
+        }
+    }
 
     #[test]
     fn parses_legacy_next_data_payload() {
