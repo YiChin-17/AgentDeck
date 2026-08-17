@@ -138,7 +138,19 @@ function codesFor(mutate) {
   );
 }
 
-test("clean AgentDeck bundle reports the stable success summary", () => {
+/// Reading a packaged .app goes through `plutil`, a macOS-only tool, so every
+/// case that runs the whole checker can only mean anything on a macOS host — on
+/// Linux the bundle reads as missing no matter what the fixture contains. The
+/// platform-independent cases further down still run everywhere, which is what
+/// keeps this file useful in the Linux pull-request job.
+const requiresMacOS =
+  process.platform === "darwin"
+    ? {}
+    : { skip: `packaged bundle inspection requires macOS, host is "${process.platform}"` };
+
+const macosTest = (name, fn) => test(name, requiresMacOS, fn);
+
+macosTest("clean AgentDeck bundle reports the stable success summary", () => {
   const result = runFixture();
 
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
@@ -148,7 +160,7 @@ test("clean AgentDeck bundle reports the stable success summary", () => {
   );
 });
 
-test("missing application bundle reports bundle_missing", () => {
+macosTest("missing application bundle reports bundle_missing", () => {
   const codes = codesFor((files) => {
     files[`${APP_DIR}/Contents/Info.plist`] = null;
     files[`${APP_DIR}/Contents/MacOS/AgentDeck`] = null;
@@ -157,7 +169,7 @@ test("missing application bundle reports bundle_missing", () => {
   assert.deepEqual(codes, ["bundle_missing"]);
 });
 
-test("missing macOS installer reports installer_missing", () => {
+macosTest("missing macOS installer reports installer_missing", () => {
   const codes = codesFor((files) => {
     files[`${BUNDLE_ROOT}/dmg/AgentDeck_${VERSION}_aarch64.dmg`] = null;
   });
@@ -165,7 +177,7 @@ test("missing macOS installer reports installer_missing", () => {
   assert.deepEqual(codes, ["installer_missing"]);
 });
 
-test("wrong Bundle ID reports identity_mismatch", () => {
+macosTest("wrong Bundle ID reports identity_mismatch", () => {
   const codes = codesFor((files) => {
     files[`${APP_DIR}/Contents/Info.plist`] = plist({
       CFBundleName: "AgentDeck",
@@ -179,7 +191,7 @@ test("wrong Bundle ID reports identity_mismatch", () => {
   assert.deepEqual(codes, ["identity_mismatch"]);
 });
 
-test("wrong bundle display name reports identity_mismatch", () => {
+macosTest("wrong bundle display name reports identity_mismatch", () => {
   const codes = codesFor((files) => {
     files[`${APP_DIR}/Contents/Info.plist`] = plist({
       CFBundleName: "Skills Manager",
@@ -193,7 +205,7 @@ test("wrong bundle display name reports identity_mismatch", () => {
   assert.deepEqual(codes, ["identity_mismatch"]);
 });
 
-test("installer built for another product reports identity_mismatch", () => {
+macosTest("installer built for another product reports identity_mismatch", () => {
   const codes = codesFor((files) => {
     files[`${BUNDLE_ROOT}/dmg/AgentDeck_${VERSION}_aarch64.dmg`] = null;
     files[`${BUNDLE_ROOT}/dmg/SkillsManager_${VERSION}_aarch64.dmg`] = "fixture installer";
@@ -202,7 +214,7 @@ test("installer built for another product reports identity_mismatch", () => {
   assert.deepEqual(codes, ["identity_mismatch"]);
 });
 
-test("bundle version differing from committed configuration reports version_mismatch", () => {
+macosTest("bundle version differing from committed configuration reports version_mismatch", () => {
   const codes = codesFor((files) => {
     files[`${APP_DIR}/Contents/Info.plist`] = plist({
       CFBundleName: "AgentDeck",
@@ -216,7 +228,7 @@ test("bundle version differing from committed configuration reports version_mism
   assert.deepEqual(codes, ["version_mismatch"]);
 });
 
-test("package version differing from Tauri configuration reports version_mismatch", () => {
+macosTest("package version differing from Tauri configuration reports version_mismatch", () => {
   const codes = codesFor((files) => {
     files["package.json"] = JSON.stringify({ name: "agentdeck", version: "1.31.0" }, null, 2);
   });
@@ -224,7 +236,7 @@ test("package version differing from Tauri configuration reports version_mismatc
   assert.deepEqual(codes, ["version_mismatch"]);
 });
 
-test("installer version differing from committed configuration reports version_mismatch", () => {
+macosTest("installer version differing from committed configuration reports version_mismatch", () => {
   const codes = codesFor((files) => {
     files[`${BUNDLE_ROOT}/dmg/AgentDeck_${VERSION}_aarch64.dmg`] = null;
     files[`${BUNDLE_ROOT}/dmg/AgentDeck_1.29.0_aarch64.dmg`] = "fixture installer";
@@ -233,7 +245,7 @@ test("installer version differing from committed configuration reports version_m
   assert.deepEqual(codes, ["version_mismatch"]);
 });
 
-test("absent main executable reports executable_missing", () => {
+macosTest("absent main executable reports executable_missing", () => {
   const codes = codesFor((files) => {
     files[`${APP_DIR}/Contents/MacOS/AgentDeck`] = null;
   });
@@ -241,7 +253,7 @@ test("absent main executable reports executable_missing", () => {
   assert.deepEqual(codes, ["executable_missing"]);
 });
 
-test("non-executable main binary reports executable_missing", () => {
+macosTest("non-executable main binary reports executable_missing", () => {
   const result = withFixture(null, (fixtureRoot) => {
     fs.chmodSync(path.join(fixtureRoot, APP_DIR, "Contents/MacOS/AgentDeck"), 0o644);
     return checkPersonalInstallation({ rootDir: fixtureRoot, platform: "darwin" });
@@ -253,7 +265,7 @@ test("non-executable main binary reports executable_missing", () => {
   );
 });
 
-test("updater build surface reports updater_surface_present", () => {
+macosTest("updater build surface reports updater_surface_present", () => {
   const codes = codesFor((files) => {
     files["src-tauri/tauri.conf.json"] = JSON.stringify(
       {
@@ -270,7 +282,7 @@ test("updater build surface reports updater_surface_present", () => {
   assert.deepEqual(codes, ["updater_surface_present"]);
 });
 
-test("documentation missing a required topic reports documentation_incomplete", () => {
+macosTest("documentation missing a required topic reports documentation_incomplete", () => {
   const codes = codesFor((files) => {
     files["README.md"] = COMPLETE_README.replace(
       /### Uninstall[\s\S]*?### No application auto-update/,
@@ -281,7 +293,7 @@ test("documentation missing a required topic reports documentation_incomplete", 
   assert.deepEqual(codes, ["documentation_incomplete"]);
 });
 
-test("documentation claiming upstream signing trust reports documentation_incomplete", () => {
+macosTest("documentation claiming upstream signing trust reports documentation_incomplete", () => {
   const codes = codesFor((files) => {
     files["README.md"] = COMPLETE_README.replace(
       "### No application auto-update",
@@ -292,7 +304,7 @@ test("documentation claiming upstream signing trust reports documentation_incomp
   assert.deepEqual(codes, ["documentation_incomplete"]);
 });
 
-test("an official release section may describe signing outside the personal section", () => {
+macosTest("an official release section may describe signing outside the personal section", () => {
   const codes = codesFor((files) => {
     files["README.md"] = `${COMPLETE_README}
 ## Official macOS release
@@ -305,7 +317,7 @@ notarized by Apple. See docs/macos-distribution.md for the verification steps.
   assert.deepEqual(codes, []);
 });
 
-test("a README without a personal installation section reports documentation_incomplete", () => {
+macosTest("a README without a personal installation section reports documentation_incomplete", () => {
   const codes = codesFor((files) => {
     files["README.md"] = COMPLETE_README.replace(
       "## Personal installation (local build)",
@@ -316,7 +328,7 @@ test("a README without a personal installation section reports documentation_inc
   assert.deepEqual(codes, ["documentation_incomplete"]);
 });
 
-test("documentation instructing a Gatekeeper bypass reports documentation_incomplete", () => {
+macosTest("documentation instructing a Gatekeeper bypass reports documentation_incomplete", () => {
   const codes = codesFor((files) => {
     files["README.md"] = `${COMPLETE_README}\nIf the app will not open, run \`xattr -cr /Applications/AgentDeck.app\`.\n`;
   });
@@ -335,7 +347,7 @@ test("packaged inspection on a non-macOS host reports unsupported_host only", ()
   );
 });
 
-test("failing check exits non-zero and names the stable code and artifact location", () => {
+macosTest("failing check exits non-zero and names the stable code and artifact location", () => {
   const result = runFixture((files) => {
     files[`${APP_DIR}/Contents/Info.plist`] = null;
     files[`${APP_DIR}/Contents/MacOS/AgentDeck`] = null;
