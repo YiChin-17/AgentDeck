@@ -39,6 +39,24 @@ export const REQUIRED_DESKTOP_ASSETS = [
   "src-tauri/icons/tray/tray-icon-32.png",
 ];
 
+/// Both Settings actions share one repository constant, so the fork's identity
+/// survives only if the constant holds the AgentDeck repo AND each action still
+/// derives its destination from it — a hardcoded URL in one action would
+/// silently keep sending users upstream.
+const SETTINGS_SOURCE = "src/views/Settings.tsx";
+const AGENTDECK_REPO_URL = "https://github.com/YiChin-17/AgentDeck";
+const UPSTREAM_REPO_URL = "https://github.com/xingkongliang/skills-manager";
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const SETTINGS_REPOSITORY_DESTINATIONS = [
+  new RegExp(`const GITHUB_URL = "${escapeRegExp(AGENTDECK_REPO_URL)}";`),
+  /openUrl\(GITHUB_URL\)/,
+  /openUrl\(`\$\{GITHUB_URL\}\/issues\/new\?template=bug_report\.md`\)/,
+];
+
 const DISPLAY_SURFACES = [
   ["index.html", /<title>AgentDeck<\/title>/],
   ["src-tauri/src/lib.rs", /Open AgentDeck/],
@@ -96,8 +114,25 @@ function collectStrings(value, result = []) {
   return result;
 }
 
+function checkSettingsRepositoryDestinations(rootDir, violations) {
+  const text = readFile(rootDir, SETTINGS_SOURCE)?.toString("utf8") ?? null;
+  /// A missing file is already reported by the display-surface loop.
+  if (text === null) return;
+  const usesManagedDestinations = SETTINGS_REPOSITORY_DESTINATIONS.every((pattern) =>
+    pattern.test(text),
+  );
+  if (!usesManagedDestinations || text.includes(UPSTREAM_REPO_URL)) {
+    addViolation(
+      violations,
+      SETTINGS_SOURCE,
+      "repository-destination",
+      `repository and report-issue actions must derive from the managed ${AGENTDECK_REPO_URL} constant and must not target ${UPSTREAM_REPO_URL}`,
+    );
+  }
+}
+
 function readPackageName(cargoToml, section) {
-  const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedSection = escapeRegExp(section);
   const match = cargoToml.match(new RegExp(`^\\[${escapedSection}\\]\\s*([\\s\\S]*?)(?=^\\[|\\Z)`, "m"));
   return match?.[1].match(/^name\s*=\s*"([^"]+)"/m)?.[1] ?? null;
 }
@@ -171,6 +206,8 @@ export function checkProductIdentity({
       );
     }
   }
+
+  checkSettingsRepositoryDestinations(rootDir, violations);
 
   for (const relativePath of ["src/i18n/en.json", "src/i18n/zh-TW.json"]) {
     const locale = parseJson(rootDir, relativePath, violations);

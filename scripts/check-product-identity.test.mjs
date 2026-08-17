@@ -15,6 +15,22 @@ import {
 const upstreamIcon = Buffer.from("upstream-icon-fixture");
 const upstreamIconSha256 = crypto.createHash("sha256").update(upstreamIcon).digest("hex");
 const checkerPath = fileURLToPath(new URL("./check-product-identity.mjs", import.meta.url));
+const UPSTREAM_REPO_URL = "https://github.com/xingkongliang/skills-manager";
+
+/// Mirrors the two managed Settings destinations: the repository button opens the
+/// constant itself, the report-issue flow appends the bug report template to it.
+function settingsSource({
+  repositoryBase = "https://github.com/YiChin-17/AgentDeck",
+  repositoryAction = "await openUrl(GITHUB_URL);",
+  issueAction = "await openUrl(`${GITHUB_URL}/issues/new?template=bug_report.md`);",
+} = {}) {
+  return [
+    "// diagnostics are auto-collected by AgentDeck",
+    `  const GITHUB_URL = "${repositoryBase}";`,
+    `      ${repositoryAction}`,
+    `      ${issueAction}`,
+  ].join("\n");
+}
 
 function writeFixture(overrides = {}) {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentdeck-identity-"));
@@ -42,12 +58,13 @@ function writeFixture(overrides = {}) {
       "builder = builder.icon_as_template(true)",
     ].join("\n"),
     "src-tauri/src/commands/settings.rs": "# AgentDeck Diagnostics",
-    "src/views/Settings.tsx": "auto-collected by AgentDeck",
+    "src/views/Settings.tsx": settingsSource(),
     "src/i18n/en.json": JSON.stringify({ app: { name: "AgentDeck" } }),
     "src/i18n/zh-TW.json": JSON.stringify({ app: { name: "AgentDeck" } }),
     "README.md": [
       '<h1 align="center">AgentDeck</h1>',
       "Legacy compatibility: ~/.skills-manager, skills-manager.db, and skills-manager-cli remain unchanged.",
+      `Forked from ${UPSTREAM_REPO_URL}.`,
     ].join("\n"),
     "src-tauri/icons/icon-source.png": Buffer.from("agentdeck-icon-fixture"),
   };
@@ -91,6 +108,35 @@ function assertSingleViolation(overrides, expectedFile, expectedRule) {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 }
+
+test("upstream Settings repository destination reports its file and rule", () => {
+  assertSingleViolation(
+    { "src/views/Settings.tsx": settingsSource({ repositoryBase: UPSTREAM_REPO_URL }) },
+    "src/views/Settings.tsx",
+    "repository-destination",
+  );
+});
+
+test("Settings action bypassing the managed constant reports its file and rule", () => {
+  assertSingleViolation(
+    {
+      "src/views/Settings.tsx": settingsSource({
+        issueAction:
+          'await openUrl("https://github.com/xingkongliang/skills-manager/issues/new?template=bug_report.md");',
+      }),
+    },
+    "src/views/Settings.tsx",
+    "repository-destination",
+  );
+});
+
+test("Settings repository action pointing elsewhere reports its file and rule", () => {
+  assertSingleViolation(
+    { "src/views/Settings.tsx": settingsSource({ repositoryAction: 'await openUrl(DOCS_URL);' }) },
+    "src/views/Settings.tsx",
+    "repository-destination",
+  );
+});
 
 test("valid identity and explicit legacy compatibility exceptions pass", () => {
   const rootDir = writeFixture();
