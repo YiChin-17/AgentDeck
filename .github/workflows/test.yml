@@ -6,15 +6,47 @@ on:
     paths:
       - 'src-tauri/**'
       - '.github/workflows/test.yml'
+  # No path filter: a frontend, locale, package metadata or repository contract
+  # change is validated by the Node job below, and an allowlist would have to
+  # grow with every new surface — the shape that already let frontend pull
+  # requests through unchecked (issue #4).
   pull_request:
-    paths:
-      - 'src-tauri/**'
-      - '.github/workflows/test.yml'
 
 permissions:
   contents: read
 
 jobs:
+  # The frontend and repository subset of the release regression job, so a pull
+  # request meets the same gates that decide whether a tag is releasable.
+  node-validation:
+    runs-on: ubuntu-22.04
+    name: Node validation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend production build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Locale integrity
+        run: npm run check:i18n
+
+      - name: Repository Node contracts
+        run: node --test scripts/*.test.mjs
+
   rust-tests:
     strategy:
       fail-fast: false

@@ -18,6 +18,7 @@
     "check:plugin-mutations": "node scripts/check-plugin-mutations.mjs",
     "check:plugins-ui": "node scripts/check-plugins-ui.mjs",
     "check:product-identity": "node scripts/check-product-identity.mjs",
+    "check:pull-request-validation": "node scripts/check-pull-request-validation.mjs",
     "check:skill-pack-ui": "node scripts/check-skill-pack-ui.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
