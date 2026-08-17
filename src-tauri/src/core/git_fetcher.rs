@@ -671,9 +671,12 @@ pub fn relative_subpath(repo_dir: &Path, skill_dir: &Path) -> Option<String> {
 fn normalize_url(url: &str) -> (String, Option<String>, Option<String>) {
     let trimmed = url.trim();
 
-    // Already a full URL
+    // Already a full URL. The scheme set here must match what `validate_git_url`
+    // accepts — a scheme that validates but is missing here falls through to the
+    // shorthand branch and gets rewritten into an invalid GitHub HTTPS URL.
     if trimmed.starts_with("http://")
         || trimmed.starts_with("https://")
+        || trimmed.starts_with("ssh://")
         || trimmed.starts_with("git@")
     {
         if let Some((clone_url, branch, subpath)) = parse_github_tree_url(trimmed) {
@@ -984,6 +987,22 @@ mod tests {
     fn parses_git_ssh_url() {
         let parsed = parse_git_source("git@github.com:acme/skills.git");
         assert_eq!(parsed.clone_url, "git@github.com:acme/skills.git");
+        assert_eq!(parsed.branch, None);
+        assert_eq!(parsed.subpath, None);
+    }
+
+    #[test]
+    fn parses_full_http_url() {
+        let parsed = parse_git_source("http://git.example.com/acme/skills.git");
+        assert_eq!(parsed.clone_url, "http://git.example.com/acme/skills.git");
+        assert_eq!(parsed.branch, None);
+        assert_eq!(parsed.subpath, None);
+    }
+
+    #[test]
+    fn parses_ssh_scheme_url() {
+        let parsed = parse_git_source("ssh://git@github.com/acme/skills.git");
+        assert_eq!(parsed.clone_url, "ssh://git@github.com/acme/skills.git");
         assert_eq!(parsed.branch, None);
         assert_eq!(parsed.subpath, None);
     }
