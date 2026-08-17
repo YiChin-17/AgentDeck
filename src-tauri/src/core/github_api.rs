@@ -79,7 +79,7 @@ pub fn connect_backup_repo(
     if !is_valid_repo_name(repo_name) {
         bail!("Invalid repository name");
     }
-    let client = build_http_client(proxy_url, 20);
+    let client = build_http_client(proxy_url, 20)?;
 
     // Who owns this token? Also serves as token validation.
     let resp = request(&client, reqwest::Method::GET, &format!("{API_BASE}/user"), token)
@@ -173,7 +173,7 @@ pub enum DevicePollOutcome {
 
 /// Request a device + user code pair to start the flow.
 pub fn device_flow_start(proxy_url: Option<&str>) -> Result<DeviceFlowStart> {
-    let client = build_http_client(proxy_url, 20);
+    let client = build_http_client(proxy_url, 20)?;
     let resp = client
         .post("https://github.com/login/device/code")
         .header("Accept", "application/json")
@@ -202,7 +202,7 @@ pub fn device_flow_start(proxy_url: Option<&str>) -> Result<DeviceFlowStart> {
 /// One poll of the token endpoint. The caller owns the pacing loop
 /// (`interval` seconds between calls, +5s on `SlowDown`, stop at expiry).
 pub fn device_flow_poll(device_code: &str, proxy_url: Option<&str>) -> Result<DevicePollOutcome> {
-    let client = build_http_client(proxy_url, 20);
+    let client = build_http_client(proxy_url, 20)?;
     let resp = client
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
