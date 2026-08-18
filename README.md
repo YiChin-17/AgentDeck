@@ -26,14 +26,6 @@ The retained GitHub OAuth integration may still appear as `skills-manager` on Gi
 
 <p align="center">
   <a href="./README.zh-TW.md">繁體中文</a>
-  &nbsp;·&nbsp;
-  <a href="https://x.com/JayTL00">@JayTL00 on X</a>
-  &nbsp;·&nbsp;
-  <a href="https://buymeacoffee.com/jaytl">Buy me a coffee</a>
-</p>
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/23290?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-23290" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/23290" alt="xingkongliang%2Fskills-manager | Trendshift" width="250" height="55"/></a>
 </p>
 
 <p align="center">
@@ -327,14 +319,6 @@ The `skills-manager-cli` binary, if you installed it, lives at `~/.cargo/bin/ski
 ### macOS asks for the `skills-manager-git-backup` keychain entry again
 
 A personal build's code signature changes whenever you rebuild it, and macOS ties keychain access to that signature. After installing a new local build, the first Git backup may ask for permission to read the `skills-manager-git-backup` entry. Click **Always Allow** for the new build.
-
-## Star History
-
-<p align="center">
-  <a href="https://github.com/xingkongliang/star-history-svg">
-    <img src="assets/star-history.svg" width="800" alt="Star History chart for xingkongliang/skills-manager" />
-  </a>
-</p>
 
 ## License
 
