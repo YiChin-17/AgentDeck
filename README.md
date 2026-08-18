@@ -25,7 +25,7 @@ The retained GitHub OAuth integration may still appear as `skills-manager` on Gi
 </p>
 
 <p align="center">
-  <a href="./README.zh-CN.md">中文说明</a>
+  <a href="./README.zh-TW.md">繁體中文</a>
   &nbsp;·&nbsp;
   <a href="https://x.com/JayTL00">@JayTL00 on X</a>
   &nbsp;·&nbsp;
