@@ -18,12 +18,7 @@ export const RELEASE_FILES = [
   'src-tauri/tauri.conf.json',
   'src/i18n/en.json',
   'src/i18n/zh-TW.json',
-  'assets/star-history.svg',
 ];
-
-/// Files whose contents this script rewrites. `assets/star-history.svg` is
-/// refreshed best-effort by an external script, so it is staged but not required.
-const REWRITTEN_FILES = RELEASE_FILES.filter((file) => file !== 'assets/star-history.svg');
 
 const LOCALE_FILES = ['src/i18n/en.json', 'src/i18n/zh-TW.json'];
 
@@ -137,15 +132,6 @@ function ensureChangelogEntry(changelog, nextVersion, dateStr, { zh = false } = 
   return `${changelog.slice(0, firstReleaseHeading)}${entry}${changelog.slice(firstReleaseHeading)}`;
 }
 
-// Refresh the README star-history snapshot. Best-effort: a failure here (no gh
-// auth, no network, no python3) must never block the version bump / changelog.
-function refreshStarHistory(root) {
-  const script = path.join(root, 'scripts', 'gen-star-history.py');
-  if (!fs.existsSync(script)) return false;
-  const res = spawnSync('python3', [script], { stdio: 'inherit' });
-  return !res.error && res.status === 0;
-}
-
 function readGitState(root) {
   const run = (args) => {
     const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -174,7 +160,7 @@ function main() {
     return;
   }
 
-  const missing = REWRITTEN_FILES.filter((file) => !fs.existsSync(path.join(root, file)));
+  const missing = RELEASE_FILES.filter((file) => !fs.existsSync(path.join(root, file)));
   if (missing.length > 0) {
     console.error(`Cannot prepare a release, these files are missing: ${missing.join(', ')}`);
     process.exitCode = 1;
@@ -248,18 +234,11 @@ function main() {
   fs.writeFileSync(changelogPath, nextChangelog);
   fs.writeFileSync(changelogZhPath, nextChangelogZh);
 
-  const starOk = refreshStarHistory(root);
-
   console.log(`Prepared release ${nextVersion}`);
   console.log('Updated:');
-  for (const relativePath of REWRITTEN_FILES) {
+  for (const relativePath of RELEASE_FILES) {
     console.log(`- ${relativePath}`);
   }
-  console.log(
-    starOk
-      ? '- assets/star-history.svg'
-      : '- assets/star-history.svg (skipped: refresh failed — run `python3 scripts/gen-star-history.py` manually)',
-  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -30,7 +30,6 @@ function defaultFixture() {
     "src/i18n/zh-TW.json": localeFixture(VERSION),
     "CHANGELOG.md": `# Changelog\n\n## [${VERSION}] - 2026-08-01\n\n### Release Overview\n\n- Something\n`,
     "CHANGELOG-zh.md": `# 变更日志\n\n## [${VERSION}] - 2026-08-01\n\n### 发布概览\n\n- 某些事\n`,
-    "assets/star-history.svg": "<svg></svg>\n",
   };
 }
 
@@ -131,7 +130,6 @@ test("the release file list carries the current locale files only", () => {
   assert.ok(RELEASE_FILES.includes("src/i18n/zh-TW.json"));
   assert.ok(RELEASE_FILES.includes("src/i18n/en.json"));
   assert.ok(!RELEASE_FILES.includes("src/i18n/zh.json"));
-  assert.ok(RELEASE_FILES.includes("assets/star-history.svg"));
   for (const relativePath of RELEASE_FILES) {
     assert.ok(fs.existsSync(path.join(root, relativePath)), `${relativePath} does not exist`);
   }
