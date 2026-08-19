@@ -437,7 +437,7 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           BODY_EN=$(sed -n "/^## \[${VERSION}\]/,/^## \[/{ /^## \[${VERSION}\]/d; /^## \[/d; p; }" CHANGELOG.md | awk -f scripts/strip-empty-sections.awk)
-          BODY_ZH=$(sed -n "/^## \[${VERSION}\]/,/^## \[/{ /^## \[${VERSION}\]/d; /^## \[/d; p; }" CHANGELOG-zh.md | awk -f scripts/strip-empty-sections.awk)
+          BODY_ZH=$(sed -n "/^## \[${VERSION}\]/,/^## \[/{ /^## \[${VERSION}\]/d; /^## \[/d; p; }" CHANGELOG-zh-TW.md | awk -f scripts/strip-empty-sections.awk)
           RELEASE_DATE=$(grep -m1 "^## \[${VERSION}\] - " CHANGELOG.md | sed -E "s/^## \[${VERSION}\] - ([0-9-]+).*/\1/")
           if [ -z "$RELEASE_DATE" ]; then RELEASE_DATE=$(date -u +%Y-%m-%d); fi
           PREV_TAG=$(git tag --sort=-v:refname --merged "$GITHUB_REF_NAME" | grep -v "^$GITHUB_REF_NAME$" | head -n1)

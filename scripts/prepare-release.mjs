@@ -13,7 +13,7 @@ const EXPECTED_PRODUCT_NAME = 'AgentDeck';
 /// commit.
 export const RELEASE_FILES = [
   'CHANGELOG.md',
-  'CHANGELOG-zh.md',
+  'CHANGELOG-zh-TW.md',
   'package.json',
   'src-tauri/tauri.conf.json',
   'src/i18n/en.json',
@@ -119,7 +119,7 @@ function ensureChangelogEntry(changelog, nextVersion, dateStr, { zh = false } = 
   }
 
   const sections = zh
-    ? ['### 发布概览', '- ', '', '### 用户可见更新', '- ', '', '### 开发者与治理更新', '- ']
+    ? ['### 發布概覽', '- ', '', '### 使用者可見的更新', '- ', '', '### 開發與治理', '- ']
     : ['### Release Overview', '- ', '', '### User-facing', '- ', '', '### Developer & Governance', '- '];
 
   const entry = [heading, '', ...sections, ''].join('\n');
@@ -206,7 +206,7 @@ function main() {
   });
 
   const changelogPath = path.join(root, 'CHANGELOG.md');
-  const changelogZhPath = path.join(root, 'CHANGELOG-zh.md');
+  const changelogZhPath = path.join(root, 'CHANGELOG-zh-TW.md');
   const nextChangelog = ensureChangelogEntry(
     fs.readFileSync(changelogPath, 'utf8'),
     nextVersion,

@@ -29,7 +29,7 @@ function defaultFixture() {
     "src/i18n/en.json": localeFixture(VERSION),
     "src/i18n/zh-TW.json": localeFixture(VERSION),
     "CHANGELOG.md": `# Changelog\n\n## [${VERSION}] - 2026-08-01\n\n### Release Overview\n\n- Something\n`,
-    "CHANGELOG-zh.md": `# 变更日志\n\n## [${VERSION}] - 2026-08-01\n\n### 发布概览\n\n- 某些事\n`,
+    "CHANGELOG-zh-TW.md": `# 更新日誌\n\n## [${VERSION}] - 2026-08-01\n\n### 發布概覽\n\n- 某些事\n`,
   };
 }
 
@@ -168,7 +168,7 @@ test("a prepared release moves every committed version together", () => {
       en: readJson(fixtureRoot, "src/i18n/en.json").settings.version,
       zhTw: readJson(fixtureRoot, "src/i18n/zh-TW.json").settings.version,
       changelog: fs.readFileSync(path.join(fixtureRoot, "CHANGELOG.md"), "utf8"),
-      changelogZh: fs.readFileSync(path.join(fixtureRoot, "CHANGELOG-zh.md"), "utf8"),
+      changelogZh: fs.readFileSync(path.join(fixtureRoot, "CHANGELOG-zh-TW.md"), "utf8"),
     };
   });
 

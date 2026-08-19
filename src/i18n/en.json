@@ -621,7 +621,7 @@
     "language": "Language",
     "help": "Help",
     "about": "About",
-    "version": "AgentDeck 1.30.0",
+    "version": "AgentDeck 1.0.0",
     "tagline": "Cross-platform. Minimal, efficient Skill Pack management.",
     "reportIssue": "Report Issue",
     "reportIssueHint": "Copy app/OS info and recent log excerpt to clipboard and open a new GitHub issue",

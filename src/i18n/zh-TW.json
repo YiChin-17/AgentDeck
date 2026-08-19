@@ -621,7 +621,7 @@
     "language": "語言",
     "help": "說明",
     "about": "關於",
-    "version": "AgentDeck 1.30.0",
+    "version": "AgentDeck 1.0.0",
     "tagline": "跨平台、極簡且高效的 Skill 包管理。",
     "reportIssue": "回報問題",
     "reportIssueHint": "複製 App / 系統資訊和最近日誌摘要到剪貼簿並開啟新的 GitHub issue",

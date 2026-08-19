@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AgentDeck",
-  "version": "1.30.0",
+  "version": "1.0.0",
   "identifier": "io.github.yichin17.agentdeck",
   "build": {
     "frontendDist": "../dist",
