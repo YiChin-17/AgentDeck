@@ -1,6 +1,6 @@
 ---
 name: manage-skills
-description: Manage the user's agent-skill library via the local skills-manager-cli — install, update, remove, enable/disable, sync, search, adopt, and tag skills in a central library that's shared across every installed agent (Claude Code, Cursor, Codex, Gemini CLI, Windsurf, etc.). Use this whenever the user wants to install or find or update or remove or list a skill, see what skills they have, sync skills across agents, adopt skills already installed elsewhere, or generally manage their skill library. Prefer this over find-skills when `skills-manager-cli` is on PATH, because routing installs through the central library is the only way subsequent `update` and `sync` work — direct `npx skills add` installs cannot be updated or shared across agents. Triggers include "install/add a skill", "find a skill for X", "is there a skill that does Y", "update my skills", "remove/uninstall this skill", "list/show my skills", "what skills do I have", "sync skills", "manage skills", "skill library".
+description: Manage skills through the available skills-manager-cli; distinguish search, library installation, and deployment to user-selected agents or projects.
 ---
 
 ## Before doing anything
@@ -39,7 +39,7 @@ skills-manager-cli skills install ./looks-like/owner-repo --local
 ```
 
 **Default is library-only** — the skill enters the DB but doesn't appear in any agent yet. To make it visible:
-- `--sync` → add to the current active preset + sync to every enabled agent (most common, do this unless the user signals otherwise)
+- `--sync` → add to the current active preset + sync to every enabled agent; use only when the user authorized that deployment scope. Otherwise keep the installation library-only.
 - `--sync-preset <name>` → add to a specific preset + sync
 - Or later: `presets add-skill <preset> <skill>` followed by `skills sync`
 
@@ -57,7 +57,7 @@ skills-manager-cli skills install ./looks-like/owner-repo --local
 skills-manager-cli --json skills search "react performance" --limit 5
 ```
 
-Each result has `install_ref` (paste straight into `skills install`), `installs` (popularity proxy), and `skills_sh_url`. Show the top 1–3 with install counts before installing — anything with 10K+ installs is battle-tested; anything under 100 needs a careful look at the source repo.
+Each result has `install_ref` (paste straight into `skills install`), `installs` (popularity proxy), and `skills_sh_url`. Show relevant candidates with source and scope. Install counts indicate popularity, not validation or trust; inspect suitability and source regardless of popularity.
 
 ## Update / Check
 
@@ -174,12 +174,16 @@ These two are read-only and great for diagnosing "why isn't this skill showing u
 
 ## Typical workflows
 
-### "Find me a skill for X" / "Install a skill that does X"
+### "Find me a skill for X"
 
 1. `skills search "X" --limit 5` — show the top 1–3 hits with install counts and source.
-2. If a clear winner: `skills install <install_ref> --sync`.
-3. If ambiguous: ask the user to pick.
-4. `skills list` (or `skills show <name>`) to confirm it landed in the active preset and synced.
+2. Report the candidates and their tradeoffs; a search-only request ends here.
+
+### "Install a skill that does X"
+
+1. Resolve the requested skill; ask only if the selection materially remains ambiguous.
+2. Install into the library by default. Deploy only to the agents/projects or preset authorized by the user; do not assume all enabled agents.
+3. Use `skills list` or `skills show <name>` to verify library and actual deployment state separately.
 
 ### "What skills do I have?"
 
